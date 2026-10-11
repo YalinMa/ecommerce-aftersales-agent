@@ -7,7 +7,7 @@
 | V0 | 纯对话：system prompt + 多轮对话 + 场景回放 | ✅ |
 | V1 | 工具调用：手写 agent loop，查订单、物流、售后进度，工具化转人工 | ✅ |
 | V2 | 知识库 RAG：混合检索、回答带出处、引用核查、检索评测 | ✅ |
-| V3 | 写操作：发起退货申请，带资格校验和用户确认 | ⏳ |
+| V3 | 写操作：代提交售后申请，规则引擎校验、用户确认、幂等、审计日志、转人工规则兜底 | ✅ |
 | V4 | MCP 化：业务工具拆成独立 MCP Server | ⏳ |
 | V5 | 评测和可观测：自动评分、调用链路追踪 | ⏳ |
 | V6 | 产品化：嵌入模拟商城、流式输出、转人工 | ⏳ |
@@ -27,10 +27,10 @@ python scripts/build_index.py         # 构建知识库索引（修改 knowledge
 python web/server.py                  # 网页版演示：打开 http://localhost:8000，左边聊天、右边看工具调用过程
 python chat.py -p deepseek            # 命令行对话，输入 /orders 查看当前用户的订单
 python chat.py -p deepseek -u u1002   # 以其他用户身份登录
-python scripts/run_scenarios.py -p deepseek -p openai -p qwen   # 回放 V2 场景，多厂商对比
+python scripts/run_scenarios.py -p deepseek -p openai -p qwen   # 回放最新版本（V3）场景，多厂商对比
 python scripts/eval_retrieval.py      # 检索评测：BM25 / 向量 / 混合检索对比
 python scripts/run_scenarios.py -p openai --out runs/<已有目录>  # 补跑一家，汇总进同一份对比
-python scripts/run_scenarios.py -f scenarios/v1_dialogues.json  # 跑 V1 的场景集
+python scripts/run_scenarios.py -f scenarios/v2_dialogues.json  # 跑之前版本的场景集（回归测试）
 python scripts/list_models.py -p kimi # 查看账号下可用的模型名
 ```
 
@@ -45,9 +45,13 @@ python scripts/list_models.py -p kimi # 查看账号下可用的模型名
                         │              ▲
                         │              └── user_id 由登录态注入，模型无法指定
                         ├──► search_policy ──► 知识库（BM25 + 向量混合检索）
+                        ├──► check_return_eligibility ──► 规则引擎（能否售后、截止日、运费）
+                        ├──► create_aftersale_request ──► 只生成"待确认"申请，不写库
                         └──► transfer_to_human ──► 转人工（V6 接入真实队列）
 
-                     回复 ──► 引用核查：引用的条款编号必须真的检索过
+  用户点击「确认提交」──► 程序执行写入（再校验 → 幂等 → 写库 → 审计日志）  ← 模型无法触发
+  用户消息 ──► 转人工规则（安全 / 投诉 / 索赔）：提示模型，模型没转则程序兜底
+  回复 ──► 引用核查（条款编号必须检索过）+ 单号核查（售后单号必须真实存在）
 ```
 
 ## 支持的模型厂商
@@ -72,6 +76,8 @@ agent/
   prompts/history/           历次 prompt 存档
   config.py                  全局配置；拼接 prompt 模板与会话上下文（登录用户、日期）
   knowledge.py               知识库：切分、BM25、向量、混合检索
+  rules.py                   售后资格规则引擎
+  guards.py                  转人工规则兜底
   session.py                 多轮会话 + 手写的 agent loop
   db.py                      模拟商城数据库连接
   providers/                 模型厂商适配层（含各家 tool calling 格式转换）
@@ -82,11 +88,12 @@ agent/
     base.py                  工具定义、执行上下文、参数校验
     orders.py                订单、物流、售后查询
     policy.py                知识库检索工具
+    aftersale.py             售后资格查询、生成待确认申请、确认后执行写入
     handoff.py               转人工
 knowledge/                   售后政策知识库（8 个文档、42 条条款）
 chat.py                      命令行客服窗口
 web/                         网页版演示（server.py 后端 + index.html 页面）
-scenarios/                   测试场景（v0 纯对话、v1 工具调用、v2 知识库，含自动检查规则；v2_retrieval 检索测试集）
+scenarios/                   测试场景（v0 纯对话、v1 工具调用、v2 知识库、v3 写操作，含自动检查规则；v2_retrieval 检索测试集）
 scripts/seed_data.py         生成模拟商城数据
 scripts/build_index.py       构建知识库向量索引
 scripts/eval_retrieval.py    检索评测
@@ -100,4 +107,6 @@ docs/
   v1-findings.md             V1 多模型测试结果
   v2-notes.md                V2 学习笔记：RAG 三步、检索对比、引用核查、踩坑记录
   v2-findings.md             V2 多模型测试结果
+  v3-notes.md                V3 学习笔记：写操作的多层防线、规则引擎、伪造通知攻击、踩坑记录
+  v3-findings.md             V3 多模型测试结果
 ```

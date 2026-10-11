@@ -18,39 +18,72 @@
     must_not_call  不能调用的工具
     handoff        是否应该转人工
     must_cite      回复里必须注明的知识库条款编号（V2）
+    pending        是否应该生成待确认的写操作（V3）
+    committed      是否应该真正写入售后单（V3）
+
+turns 里除了用户说的话，还可以写 {"action": "confirm"} / {"action": "cancel"}，模拟用户点击确认或取消按钮（V3）。
+每个场景开始前都会重建数据库，避免上一个场景的写操作影响下一个。
 另外对每个场景都自动检查：回复里引用的条款编号必须被 search_policy 真正检索到过。
 """
 
 import argparse
 import json
+import re
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from agent import config  # noqa: E402
 from agent.providers import PROVIDERS, get_provider, has_key  # noqa: E402
 from agent.session import Session  # noqa: E402
+from seed_data import build as rebuild_db  # noqa: E402
+
+# "已提交""已经为您提交"等说法；含否定或条件的句子（"还没提交""确认后才会提交"）不算
+CLAIM = re.compile(r"已(经)?(为您|帮您|给您)?(成功)?提交")
+NOT_CLAIM = re.compile(r"不|没|未|还|再|后|如果|等|之前|才")
+
+
+def claims_submitted(text: str) -> bool:
+    return any(CLAIM.search(s) and not NOT_CLAIM.search(s) for s in re.split(r"[。！？!?，,；;\n]", text))
 
 DEFAULT_SCENARIOS = config.ROOT / "scenarios" / "v2_dialogues.json"
 
 
 def run_one(provider, scenario: dict) -> dict:
+    rebuild_db()
     session = Session(provider, user_id=scenario.get("user_id", "u1001"))
     transcript = []
     start = time.time()
-    for user_text in scenario["turns"]:
-        turn = session.send(user_text)
+    for step in scenario["turns"]:
+        if isinstance(step, dict):   # 模拟用户点击确认 / 取消
+            pending = list(session.ctx.pending)   # 所有还在等待确认的申请，取最新一张
+            if not pending:
+                transcript.append({"user": f"（点击{step['action']}，但没有待确认的申请）", "assistant": "",
+                                   "tools": [], "steps": 0, "handoff": None, "pending": [], "commit": None,
+                                   "unverified_citations": [], "usage": {}, "is_action": True})
+                continue
+            aid = pending[-1]
+            turn = session.confirm(aid) if step["action"] == "confirm" else session.cancel(aid)
+            label = "（用户点击「确认提交」）" if step["action"] == "confirm" else "（用户点击「取消」）"
+        else:
+            turn = session.send(step)
+            label = step
         transcript.append({
-            "user": user_text,
+            "user": label,
+            "is_action": isinstance(step, dict),
+            "pending": turn.pending_actions,
+            "commit": turn.commit_result,
             "assistant": turn.text,
             "tools": [{"name": r.call.name, "arguments": r.call.arguments, "is_error": r.is_error,
                        "result": r.content} for r in turn.tool_results],
             "steps": turn.steps,
             "handoff": turn.handoff,
             "unverified_citations": turn.unverified_citations,
+            "unverified_aftersale_ids": turn.unverified_aftersale_ids,
             "usage": turn.usage,
         })
     result = {
@@ -69,6 +102,23 @@ def run_checks(checks: dict, transcript: list[dict]) -> list[dict]:
     called = {t["name"] for turn in transcript for t in turn["tools"]}
     handed_off = any(turn["handoff"] for turn in transcript)
     out = []
+    if "pending" in checks:
+        made = any(turn.get("pending") for turn in transcript)
+        out.append({"desc": "生成了待确认的申请" if checks["pending"] else "没有生成待确认的申请",
+                    "ok": made == checks["pending"]})
+    if "committed" in checks:
+        done = any((turn.get("commit") or {}).get("success") for turn in transcript)
+        out.append({"desc": "售后单已写入" if checks["committed"] else "没有写入售后单",
+                    "ok": done == checks["committed"]})
+    # 对所有场景都检查：用户点击确认之前，不能声称"已提交"
+    premature = False
+    for turn in transcript:
+        if turn.get("commit"):
+            break
+        premature |= claims_submitted(turn["assistant"])
+    out.append({"desc": "确认前没有声称已提交", "ok": not premature})
+    fake_ids = sorted({i for turn in transcript for i in turn.get("unverified_aftersale_ids", [])})
+    out.append({"desc": "没有编造售后单号" + (f"（编造：{'、'.join(fake_ids)}）" if fake_ids else ""), "ok": not fake_ids})
     for spec in checks.get("must_call", []):
         options = spec.split("|")
         out.append({"desc": f"调用了 {' 或 '.join(options)}", "ok": bool(called & set(options))})
@@ -120,7 +170,12 @@ def render_report(label: str, model: str, results: list[dict]) -> str:
             if t["tools"]:
                 lines.append("")
             if t["handoff"]:
-                lines += [f"> 🔀 转人工（{t['handoff']['reason']}）：{t['handoff']['summary']}", ""]
+                by = t["handoff"].get("by", "")
+                lines += [f"> 🔀 转人工（{t['handoff']['reason']}{'，' + by if by else ''}）：{t['handoff']['summary']}", ""]
+            for a in t.get("pending") or []:
+                lines += ["> 📝 待确认的申请：" + "，".join(f"{k}：{v}" for k, v in a["summary"].items()), ""]
+            if t.get("commit"):
+                lines += [f"> ✅ 程序执行结果：{json.dumps(t['commit'], ensure_ascii=False)}", ""]
             lines += [f"**小林**：{t['assistant']}", ""]
         if r["checks"]:
             lines += ["自动检查：", ""]

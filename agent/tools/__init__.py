@@ -2,12 +2,13 @@
 
 from agent.tools.base import (Tool, ToolCall, ToolContext, ToolError, ToolResult, to_json,
                               validate_arguments)
+from agent.tools.aftersale import CHECK_RETURN_ELIGIBILITY, CREATE_AFTERSALE_REQUEST
 from agent.tools.handoff import TRANSFER_TO_HUMAN
 from agent.tools.orders import GET_AFTERSALE_STATUS, GET_LOGISTICS, GET_ORDER_DETAIL, LIST_MY_ORDERS
 from agent.tools.policy import SEARCH_POLICY
 
 TOOLS: list[Tool] = [SEARCH_POLICY, LIST_MY_ORDERS, GET_ORDER_DETAIL, GET_LOGISTICS, GET_AFTERSALE_STATUS,
-                     TRANSFER_TO_HUMAN]
+                     CHECK_RETURN_ELIGIBILITY, CREATE_AFTERSALE_REQUEST, TRANSFER_TO_HUMAN]
 _BY_NAME = {t.name: t for t in TOOLS}
 
 

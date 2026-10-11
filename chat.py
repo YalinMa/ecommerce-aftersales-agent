@@ -154,11 +154,29 @@ def main():
             print("\n[网络连接失败，请检查网络或 BASE_URL 后重试]\n")
             continue
 
-        u = turn.usage
-        print(f"\n{GRAY}  ↳ {turn.steps} 步 · 调用工具 {len(turn.tool_results)} 次 · "
-              f"输入 {u['input_tokens']} / 输出 {u['output_tokens']} tokens · {turn.model}{RESET}\n")
-        if turn.handoff:
-            print(f"  ↳ [系统] 已转接人工客服（{turn.handoff['reason']}）：{turn.handoff['summary']}\n")
+        report(turn)
+        # 写操作：在命令行里让用户确认（相当于网页上的确认按钮）
+        for a in turn.pending_actions:
+            print("  ┌ 待确认的售后申请（确认后才会提交）")
+            for k, v in a["summary"].items():
+                print(f"  │ {k}：{v}")
+            answer = input("  └ 确认提交？输入 y 确认，其他任意键取消：").strip().lower()
+            print("小林：", end="", flush=True)
+            if answer == "y":
+                t = session.confirm(a["id"], on_text=lambda x: print(x, end="", flush=True), on_tool=print_tool)
+                print(f"\n{GRAY}  ↳ 程序执行结果：{json.dumps(t.commit_result, ensure_ascii=False)}{RESET}")
+            else:
+                t = session.cancel(a["id"], on_text=lambda x: print(x, end="", flush=True))
+            report(t)
+
+
+def report(turn):
+    u = turn.usage
+    print(f"\n{GRAY}  ↳ {turn.steps} 步 · 调用工具 {len(turn.tool_results)} 次 · "
+          f"输入 {u['input_tokens']} / 输出 {u['output_tokens']} tokens · {turn.model}{RESET}\n")
+    if turn.handoff:
+        print(f"  ↳ [系统] 已转接人工客服（{turn.handoff['reason']} · {turn.handoff.get('by', '')}）："
+              f"{turn.handoff['summary']}\n")
 
 
 if __name__ == "__main__":

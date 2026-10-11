@@ -4,62 +4,151 @@
     "category": "政策问答",
     "title": "退货后优惠券退不退",
     "user_id": "u1001",
-    "turns": ["退货以后我用的优惠券还能退回来吗"],
-    "checks": {"must_call": ["search_policy"], "must_cite": ["M-04"], "handoff": false},
-    "expect": ["整单退款未过期券退回、过期不退；部分退款按比例分摊、券不退回", "末尾注明依据 M-04"]
+    "turns": [
+      "退货以后我用的优惠券还能退回来吗"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy"
+      ],
+      "must_cite": [
+        "M-04"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "整单退款未过期券退回、过期不退；部分退款按比例分摊、券不退回",
+      "末尾注明依据 M-04"
+    ]
   },
   {
     "id": "kb-02",
     "category": "政策问答",
     "title": "运费险赔多少（口语说法：退货险）",
     "user_id": "u1001",
-    "turns": ["退货险一般能赔多少钱"],
-    "checks": {"must_call": ["search_policy"], "must_cite": ["F-02"], "handoff": false},
-    "expect": ["江浙沪皖 10 元，其他地区 12–25 元，最高 25 元", "注明依据 F-02"]
+    "turns": [
+      "退货险一般能赔多少钱"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy"
+      ],
+      "must_cite": [
+        "F-02"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "江浙沪皖 10 元，其他地区 12–25 元，最高 25 元",
+      "注明依据 F-02"
+    ]
   },
   {
     "id": "kb-03",
     "category": "政策问答",
     "title": "增值税专票",
     "user_id": "u1001",
-    "turns": ["公司报销要专票，怎么开"],
-    "checks": {"must_call": ["search_policy"], "must_cite": ["I-02"], "handoff": false},
-    "expect": ["选择专票并填写企业资质信息，3 个工作日内开具，纸质邮寄", "注明依据 I-02"]
+    "turns": [
+      "公司报销要专票，怎么开"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy"
+      ],
+      "must_cite": [
+        "I-02"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "选择专票并填写企业资质信息，3 个工作日内开具，纸质邮寄",
+      "注明依据 I-02"
+    ]
   },
   {
     "id": "kb-04",
     "category": "政策问答",
     "title": "赠品丢了",
     "user_id": "u1001",
-    "turns": ["买东西送的小风扇我弄丢了，还能退货吗"],
-    "checks": {"must_call": ["search_policy"], "must_cite": ["R-05"], "handoff": false},
-    "expect": ["可以退，但按赠品标注价值扣款；未标注价值不扣", "注明依据 R-05"]
+    "turns": [
+      "买东西送的小风扇我弄丢了，还能退货吗"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy"
+      ],
+      "must_cite": [
+        "R-05"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "可以退，但按赠品标注价值扣款；未标注价值不扣",
+      "注明依据 R-05"
+    ]
   },
   {
     "id": "kb-05",
     "category": "政策问答",
     "title": "人工客服时间",
     "user_id": "u1001",
-    "turns": ["晚上十一点还有人工客服吗"],
-    "checks": {"must_call": ["search_policy"], "must_cite": ["S-01"], "handoff": false},
-    "expect": ["人工 9:00–22:00，十一点不在线，可留言次日回复", "不转人工"]
+    "turns": [
+      "晚上十一点还有人工客服吗"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy"
+      ],
+      "must_cite": [
+        "S-01"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "人工 9:00–22:00，十一点不在线，可留言次日回复",
+      "不转人工"
+    ]
   },
   {
     "id": "kb-06",
     "category": "政策问答",
     "title": "换款式",
     "user_id": "u1001",
-    "turns": ["衬衫能直接换成另一个款式的吗"],
-    "checks": {"must_call": ["search_policy"], "must_cite": ["R-07"], "handoff": false},
-    "expect": ["换货仅限同款换尺码颜色；换款式需先退货再下单"]
+    "turns": [
+      "衬衫能直接换成另一个款式的吗"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy"
+      ],
+      "must_cite": [
+        "R-07"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "换货仅限同款换尺码颜色；换款式需先退货再下单"
+    ]
   },
   {
     "id": "combo-01",
     "category": "订单 + 政策",
     "title": "退衬衫：运费险赔多少、多久到账",
     "user_id": "u1001",
-    "turns": ["衬衫想退了，运费险能赔多少，多久能到账"],
-    "checks": {"must_call": ["search_policy", "get_order_detail"], "must_cite": ["F-02", "F-03"], "handoff": false},
+    "turns": [
+      "衬衫想退了，运费险能赔多少，多久能到账"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy",
+        "get_order_detail"
+      ],
+      "must_cite": [
+        "F-02",
+        "F-03"
+      ],
+      "handoff": false
+    },
     "expect": [
       "查订单确认有运费险、签收 3 天可无理由退",
       "理赔金额按 F-02，揽收后 72 小时内自动赔付到原支付账户（F-03）"
@@ -70,62 +159,143 @@
     "category": "订单 + 政策",
     "title": "车厘子坏了要不要寄回",
     "user_id": "u1001",
-    "turns": ["车厘子坏了一半，要寄回去吗"],
-    "checks": {"must_call": ["search_policy", "get_order_detail|list_my_orders"], "must_cite": ["Q-06"], "handoff": false},
-    "expect": ["今天签收，属于生鲜质量问题", "可按坏果比例退款或整单退款，无需寄回，建议 48 小时内拍照反馈"]
+    "turns": [
+      "车厘子坏了一半，要寄回去吗"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy",
+        "get_order_detail|list_my_orders"
+      ],
+      "must_cite": [
+        "Q-06"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "今天签收，属于生鲜质量问题",
+      "可按坏果比例退款或整单退款，无需寄回，建议 48 小时内拍照反馈"
+    ]
   },
   {
     "id": "combo-03",
     "category": "订单 + 政策",
     "title": "一单两件只退一件",
     "user_id": "u1001",
-    "turns": ["保温杯和 T 恤那单，我只想退 T 恤，可以吗"],
-    "checks": {"must_call": ["search_policy", "get_order_detail|list_my_orders"], "must_cite": ["R-06"], "handoff": false},
-    "expect": ["可以只退 T 恤，签收 5 天符合无理由", "退款为该商品实际支付金额，优惠按比例分摊"]
+    "turns": [
+      "保温杯和 T 恤那单，我只想退 T 恤，可以吗"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy|check_return_eligibility",
+        "get_order_detail|list_my_orders"
+      ],
+      "must_cite": [
+        "R-01"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "可以只退 T 恤，签收 5 天符合无理由",
+      "退款为该商品实际支付金额，优惠按比例分摊"
+    ]
   },
   {
     "id": "combo-04",
     "category": "订单 + 政策",
     "title": "音箱没声音，结合签收天数判断",
     "user_id": "u1001",
-    "turns": ["蓝牙音箱突然没声音了，没摔过"],
-    "checks": {"must_call": ["search_policy", "get_order_detail|list_my_orders"], "must_cite": ["Q-01"], "handoff": false},
-    "expect": ["签收 6 天，在 15 天内，质量问题可退换、运费平台承担", "需上传照片或视频"]
+    "turns": [
+      "蓝牙音箱突然没声音了，没摔过"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy|check_return_eligibility",
+        "get_order_detail|list_my_orders"
+      ],
+      "must_cite": [
+        "Q-01"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "签收 6 天，在 15 天内，质量问题可退换、运费平台承担",
+      "需上传照片或视频"
+    ]
   },
   {
     "id": "gap-01",
     "category": "知识库没有的内容",
     "title": "花呗分期",
     "user_id": "u1001",
-    "turns": ["下单能用花呗分期吗，分期有手续费吗"],
-    "checks": {"must_call": ["search_policy"], "handoff": false},
-    "expect": ["知识库只写了支持花呗支付，没写分期和手续费", "如实说明没有查到分期规定，不编造手续费"]
+    "turns": [
+      "下单能用花呗分期吗，分期有手续费吗"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "知识库只写了支持花呗支付，没写分期和手续费",
+      "如实说明没有查到分期规定，不编造手续费"
+    ]
   },
   {
     "id": "gap-02",
     "category": "知识库没有的内容",
     "title": "以旧换新",
     "user_id": "u1001",
-    "turns": ["你们有以旧换新活动吗，旧手机能抵多少钱"],
-    "checks": {"must_call": ["search_policy"], "handoff": false},
-    "expect": ["如实说明没有查到相关规定", "不编造活动规则或抵扣金额"]
+    "turns": [
+      "你们有以旧换新活动吗，旧手机能抵多少钱"
+    ],
+    "checks": {
+      "must_call": [
+        "search_policy"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "如实说明没有查到相关规定",
+      "不编造活动规则或抵扣金额"
+    ]
   },
   {
     "id": "handoff-01",
     "category": "转人工",
     "title": "投诉",
     "user_id": "u1001",
-    "turns": ["你们这服务太差了，我要投诉"],
-    "checks": {"must_call": ["transfer_to_human"], "handoff": true},
-    "expect": ["安抚情绪", "转人工；可告知投诉渠道（S-02）"]
+    "turns": [
+      "你们这服务太差了，我要投诉"
+    ],
+    "checks": {
+      "must_call": [
+        "transfer_to_human"
+      ],
+      "handoff": true
+    },
+    "expect": [
+      "安抚情绪",
+      "转人工；可告知投诉渠道（S-02）"
+    ]
   },
   {
     "id": "chat-01",
     "category": "闲聊",
     "title": "打招呼不需要检索",
     "user_id": "u1001",
-    "turns": ["你好"],
-    "checks": {"must_not_call": ["search_policy"], "handoff": false},
-    "expect": ["简单问候，询问需要什么帮助"]
+    "turns": [
+      "你好"
+    ],
+    "checks": {
+      "must_not_call": [
+        "search_policy"
+      ],
+      "handoff": false
+    },
+    "expect": [
+      "简单问候，询问需要什么帮助"
+    ]
   }
 ]

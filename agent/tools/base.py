@@ -10,6 +10,15 @@ from typing import Any, Callable
 
 
 @dataclass
+class PendingAction:
+    """等待用户确认的写操作。模型只能创建它，执行必须由用户在界面上确认。"""
+    id: str
+    kind: str          # 操作类型，如 create_aftersale
+    params: dict       # 执行所需参数（已经过程序校验）
+    summary: dict      # 展示给用户确认的内容
+
+
+@dataclass
 class ToolContext:
     """工具执行时的上下文，由程序注入，模型看不到也改不了。
 
@@ -18,6 +27,7 @@ class ToolContext:
     """
     user_id: str
     handoff: dict | None = None   # transfer_to_human 被调用后写入
+    pending: dict[str, PendingAction] = field(default_factory=dict)   # 待确认的写操作
 
 
 @dataclass

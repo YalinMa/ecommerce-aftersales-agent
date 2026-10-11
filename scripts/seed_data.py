@@ -70,11 +70,21 @@ CREATE TABLE aftersales (
     product_id TEXT NOT NULL REFERENCES products(id),
     type TEXT NOT NULL,              -- 退货退款 / 换货 / 仅退款
     reason TEXT NOT NULL,
-    status TEXT NOT NULL,            -- 待寄回 / 仓库已签收 / 审核中 / 退款中 / 已退款 / 已关闭
+    status TEXT NOT NULL,            -- 待审核 / 待寄回 / 仓库已签收 / 审核中 / 退款中 / 已退款 / 已关闭
     created_at TEXT NOT NULL,
     warehouse_signed_at TEXT,
     refund_amount REAL,
-    refunded_at TEXT
+    refunded_at TEXT,
+    request_key TEXT UNIQUE          -- 幂等键：同一次用户确认只会生成一张售后单
+);
+CREATE TABLE audit_log (             -- 写操作审计日志
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    time TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    params TEXT NOT NULL,
+    result TEXT NOT NULL,
+    confirmed_by TEXT NOT NULL       -- 谁确认执行的，如 user_click
 );
 """
 
@@ -184,9 +194,9 @@ class Seeder:
         self.order("LJ10010007", u, [("P008", 1)], "售后中",
                    self.ago(20), self.ago(19), self.ago(15), pay_method="信用卡")
         self.conn.execute(
-            "INSERT INTO aftersales VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO aftersales VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             ("AS20010007", "LJ10010007", "P008", "退货退款", "尺码不合适", "审核中",
-             ts(self.ago(10)), ts(self.ago(2)), PRICE["P008"], None),
+             ts(self.ago(10)), ts(self.ago(2)), PRICE["P008"], None, None),
         )
         # 车厘子，今天上午签收（生鲜）
         self.order("LJ10010008", u, [("P009", 1)], "已签收",
@@ -222,7 +232,8 @@ class Seeder:
                            insurance=self.rng.random() < 0.4)
 
 
-def main():
+def build() -> dict:
+    """重建数据库，返回各表行数。批量测试会在每个场景前调用，保证写操作互不影响。"""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     DB_PATH.unlink(missing_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -236,7 +247,13 @@ def main():
     conn.commit()
 
     counts = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-              for t in ["users", "products", "orders", "shipment_events", "aftersales"]}
+              for t in ["users", "products", "orders", "shipment_events", "aftersales", "audit_log"]}
+    conn.close()
+    return counts
+
+
+def main():
+    counts = build()
     print(f"已生成 {DB_PATH.relative_to(DB_PATH.parent.parent)}：{counts}")
 
 

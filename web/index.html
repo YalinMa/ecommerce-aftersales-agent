@@ -71,6 +71,14 @@
         overflow-x: auto; max-height: 240px; margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; }
   .turn-foot { padding: 6px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
   .hint { color: var(--muted); font-size: 13px; }
+  .confirm-card { margin: 0 0 14px; max-width: 85%; border: 1px solid var(--accent); border-radius: 10px; overflow: hidden; }
+  .confirm-card h4 { margin: 0; padding: 8px 12px; background: var(--accent-soft); color: var(--accent); font-size: 13px; }
+  .confirm-card table td { border-top: 1px solid var(--line); }
+  .confirm-card table td:first-child { color: var(--muted); white-space: nowrap; width: 72px; }
+  .confirm-card .actions { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+  .confirm-card .done { padding: 8px 12px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); }
+  .notice { text-align: center; font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+  .step.commit { background: var(--accent-soft); }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   td { padding: 4px 6px; border-top: 1px solid var(--line); vertical-align: top; }
   td.id { font-family: var(--mono); color: var(--accent); cursor: pointer; white-space: nowrap; }
@@ -116,7 +124,8 @@
 
 <script>
 const TOOL_LABELS = {
-  search_policy: "查知识库", list_my_orders: "查订单列表", get_order_detail: "查订单详情", get_logistics: "查物流",
+  search_policy: "查知识库", list_my_orders: "查订单列表",
+  check_return_eligibility: "查售后资格", create_aftersale_request: "生成售后申请", get_order_detail: "查订单详情", get_logistics: "查物流",
   get_aftersale_status: "查售后进度", transfer_to_human: "转人工",
 };
 const $ = (id) => document.getElementById(id);
@@ -202,15 +211,43 @@ async function send(text) {
   if (!sessionId) await newSession();
   if (!sessionId) return;
   $("input").value = "";
-  setBusy(true);
   addUser(text);
+  await runTurn("/api/chat", { session_id: sessionId, message: text }, `用户：<b>${esc(text)}</b>`);
+}
 
+// 用户点击确认卡片上的按钮。只有这里能让写操作真正执行
+async function decide(card, actionId, decision) {
+  if (busy) return;
+  card.querySelectorAll("button").forEach((b) => b.disabled = true);
+  const label = decision === "confirm" ? "你点击了「确认提交」" : "你点击了「取消」";
+  card.querySelector(".actions").outerHTML = `<div class="done">${label}</div>`;
+  const n = document.createElement("div");
+  n.className = "notice"; n.textContent = `— ${label} —`;
+  $("messages").append(n);
+  await runTurn("/api/action", { session_id: sessionId, action_id: actionId, decision },
+    `<b>${decision === "confirm" ? "✅ 用户确认提交" : "✖ 用户取消"}</b>（由界面按钮触发，不经过模型）`);
+}
+
+function addConfirmCard(a) {
+  const card = document.createElement("div");
+  card.className = "confirm-card";
+  card.innerHTML = `<h4>📝 待确认的售后申请（点击确认后才会提交）</h4>
+    <table>${Object.entries(a.summary).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>
+    <div class="actions"><button class="primary">确认提交</button><button>取消</button></div>`;
+  const [ok, no] = card.querySelectorAll("button");
+  ok.onclick = () => decide(card, a.id, "confirm");
+  no.onclick = () => decide(card, a.id, "cancel");
+  $("messages").append(card); scroll($("messages"));
+}
+
+async function runTurn(url, body, headHtml) {
+  setBusy(true);
   // 右侧：本轮的执行过程
   if (turnNo === 0) $("trace").innerHTML = "";
   turnNo++;
   const turn = document.createElement("div");
   turn.className = "turn";
-  turn.innerHTML = `<div class="turn-head">第 ${turnNo} 轮 · 用户：<b>${esc(text)}</b></div>`;
+  turn.innerHTML = `<div class="turn-head">第 ${turnNo} 轮 · ${headHtml}</div>`;
   $("trace").append(turn); scroll($("trace"));
 
   // 左侧：回复气泡。文字和工具调用按到达顺序穿插显示
@@ -221,8 +258,8 @@ async function send(text) {
   let segText = "";
 
   try {
-    const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, message: text }) });
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body) });
     if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
     const reader = res.body.getReader(), decoder = new TextDecoder();
     let buf = "";
@@ -253,6 +290,12 @@ async function send(text) {
           turn.append(step); scroll($("trace"));
         } else if (ev.type === "done") {
           const u = ev.usage;
+          if (ev.commit_result) {
+            const c = document.createElement("div");
+            c.className = "step commit";
+            c.innerHTML = `<span class="name">💾 程序执行写入数据库</span><pre>${esc(JSON.stringify(ev.commit_result, null, 2))}</pre>`;
+            turn.insertBefore(c, turn.children[1] || null);
+          }
           const foot = document.createElement("div");
           foot.className = "turn-foot";
           foot.textContent = `请求模型 ${ev.steps} 次 · 调用工具 ${ev.tool_calls} 次 · 输入 ${u.input_tokens} / 输出 ${u.output_tokens} tokens · ${ev.seconds} 秒 · ${ev.model}`;
@@ -265,7 +308,11 @@ async function send(text) {
           const m = document.createElement("div");
           m.className = "meta"; m.textContent = `${ev.seconds} 秒 · 调用工具 ${ev.tool_calls} 次`;
           $("messages").append(m);
-          if (ev.handoff) addBanner(`已转接人工客服（${ev.handoff.reason}）：${ev.handoff.summary}`);
+          if (ev.handoff) addBanner(`已转接人工客服（${ev.handoff.reason}${ev.handoff.by ? " · " + ev.handoff.by : ""}）：${ev.handoff.summary}`);
+          (ev.pending_actions || []).forEach(addConfirmCard);
+          if (ev.unverified_aftersale_ids?.length) {
+            addBanner(`⚠ 单号核查未通过：回复里的 ${ev.unverified_aftersale_ids.join("、")} 不是系统创建的售后单，模型说的不可信`, true);
+          }
           if (ev.unverified_citations?.length) {
             addBanner(`⚠ 引用核查未通过：回复里的 ${ev.unverified_citations.join("、")} 没有被检索到过，可能是模型编造的出处`, true);
             const warn = document.createElement("div");
@@ -282,7 +329,10 @@ async function send(text) {
   } finally {
     bubble.classList.remove("typing");
     if (!bubble.textContent.trim()) bubble.parentElement.remove();
+    // 确认卡片放在回复下面
+    $("messages").querySelectorAll(".confirm-card").forEach((c) => { if (!c.querySelector(".done")) $("messages").append(c); });
     setBusy(false); scroll($("messages")); scroll($("trace")); $("input").focus();
+    loadOrders();   // 写操作可能改变了订单状态
   }
 }
 

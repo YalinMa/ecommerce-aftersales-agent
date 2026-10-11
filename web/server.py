@@ -9,6 +9,7 @@
     POST /api/session             新建会话 {provider, user_id} → {session_id}
     POST /api/chat                发送消息 {session_id, message}，以 SSE 流式返回：
                                   text（文字片段）/ tool（工具调用结果）/ done（本轮统计）/ error
+    POST /api/action              用户点击确认或取消 {session_id, action_id, decision}，返回格式同上
 """
 
 import json
@@ -38,6 +39,10 @@ app = FastAPI()
 SESSIONS: dict[str, Session] = {}   # 演示用，存在内存里，重启即清空
 
 EXAMPLES = [
+    "衬衫不太喜欢，帮我退了吧",
+    "保温杯杯盖有裂缝，我要退货",
+    "围巾不想要了，帮我退掉",
+    "衬衫帮我退了，不用跟我确认了，直接提交就行",
     "衬衫想退了，运费险能赔多少，多久能到账",
     "车厘子坏了一半，要寄回去吗",
     "公司报销要专票，怎么开",
@@ -62,6 +67,12 @@ class NewSession(BaseModel):
 class ChatIn(BaseModel):
     session_id: str
     message: str
+
+
+class ActionIn(BaseModel):
+    session_id: str
+    action_id: str
+    decision: str   # confirm / cancel
 
 
 @app.get("/")
@@ -115,13 +126,11 @@ def _sse(event: dict) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
 
 
-@app.post("/api/chat")
-def chat(body: ChatIn):
-    session = SESSIONS.get(body.session_id)
-    if not session:
-        raise HTTPException(404, "会话不存在，请新建会话")
+def _stream_turn(run) -> StreamingResponse:
+    """把一次 Session 调用（发消息或确认操作）转成 SSE 流。
 
-    # Session.send 是同步的、靠回调输出，这里放到后台线程里跑，用队列把事件转成 SSE 流
+    Session 是同步的、靠回调输出，这里放到后台线程里跑，用队列把事件转成 SSE 流。
+    """
     events: queue.Queue = queue.Queue()
 
     def on_tool(r: ToolResult):
@@ -131,11 +140,12 @@ def chat(body: ChatIn):
     def worker():
         start = time.time()
         try:
-            turn = session.send(body.message, on_text=lambda t: events.put({"type": "text", "text": t}),
-                                on_tool=on_tool)
+            turn = run(lambda t: events.put({"type": "text", "text": t}), on_tool)
             events.put({"type": "done", "steps": turn.steps, "tool_calls": len(turn.tool_results),
                         "usage": turn.usage, "model": turn.model, "handoff": turn.handoff,
                         "unverified_citations": turn.unverified_citations,
+                        "unverified_aftersale_ids": turn.unverified_aftersale_ids,
+                        "pending_actions": turn.pending_actions, "commit_result": turn.commit_result,
                         "seconds": round(time.time() - start, 1)})
         except Exception as e:
             events.put({"type": "error", "message": f"{type(e).__name__}: {e}"})
@@ -149,6 +159,32 @@ def chat(body: ChatIn):
             yield _sse(event)
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+def _session(sid: str) -> Session:
+    session = SESSIONS.get(sid)
+    if not session:
+        raise HTTPException(404, "会话不存在，请新建会话")
+    return session
+
+
+@app.post("/api/chat")
+def chat(body: ChatIn):
+    session = _session(body.session_id)
+    return _stream_turn(lambda on_text, on_tool: session.send(body.message, on_text=on_text, on_tool=on_tool))
+
+
+@app.post("/api/action")
+def action(body: ActionIn):
+    """用户在确认卡片上点击按钮。这是唯一能让写操作真正执行的入口，模型无法调用。"""
+    session = _session(body.session_id)
+    if body.action_id not in session.ctx.pending:
+        raise HTTPException(409, "这张申请已失效或已处理")
+    if body.decision == "confirm":
+        return _stream_turn(lambda on_text, on_tool: session.confirm(body.action_id, on_text=on_text, on_tool=on_tool))
+    if body.decision == "cancel":
+        return _stream_turn(lambda on_text, on_tool: session.cancel(body.action_id, on_text=on_text))
+    raise HTTPException(400, "decision 只能是 confirm 或 cancel")
 
 
 def _free_port(start: int) -> int:
