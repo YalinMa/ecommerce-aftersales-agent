@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>售后 Agent 演示</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --line: #e6e3dc; --text: #1f1d1a; --muted: #77726a;
+    --accent: #2f6f4f; --accent-soft: #e6f0ea; --user: #2f6f4f; --user-text: #fff;
+    --tool: #f3f1ec; --err: #b4432f; --err-soft: #fbeae6; --warn-soft: #fff4dc; --warn: #8a5a00;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1f1f1c; --line: #33322e; --text: #ecebe6; --muted: #9d998f;
+      --accent: #6cbf93; --accent-soft: #23352b; --user: #2f6f4f; --user-text: #fff;
+      --tool: #272724; --err: #ef8a76; --err-soft: #3a2420; --warn-soft: #3a3020; --warn: #e8c070;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 20px;
+           border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; }
+  header label { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  select, button, input { font: inherit; color: var(--text); }
+  select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+  button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding: 16px 20px;
+         height: calc(100vh - 58px); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex;
+           flex-direction: column; min-height: 0; }
+  .panel > h2 { font-size: 14px; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .panel > h2 small { color: var(--muted); font-weight: normal; margin-left: 6px; }
+  #messages, #trace { flex: 1; overflow-y: auto; padding: 16px; }
+  .msg { display: flex; margin-bottom: 14px; }
+  .msg.user { justify-content: flex-end; }
+  .bubble { max-width: 85%; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; }
+  .user .bubble { background: var(--user); color: var(--user-text); border-bottom-right-radius: 4px; }
+  .bot .bubble { background: var(--bg); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .chip-tool { display: block; white-space: normal; margin: 6px 0; padding: 4px 10px; border-radius: 6px;
+               background: var(--tool); color: var(--muted); font-size: 12px; }
+  .chip-tool.err { background: var(--err-soft); color: var(--err); }
+  .meta { font-size: 12px; color: var(--muted); margin: -8px 0 14px 4px; }
+  .banner { margin: 0 0 14px; padding: 10px 14px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; }
+  .banner.err { background: var(--err-soft); color: var(--err); }
+  /* 示例问题：自动换行，最多显示三行，更多的上下滚动 */
+  .examples { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; padding: 10px 16px 4px;
+              border-top: 1px solid var(--line); max-height: 96px; overflow-y: auto; flex-shrink: 0; }
+  .examples button { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); border-color: transparent; }
+  form { display: flex; gap: 8px; padding: 12px 16px; }
+  form input { flex: 1; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .turn { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+  .turn-head { padding: 8px 12px; background: var(--bg); font-size: 13px; }
+  .turn-head b { font-weight: 600; }
+  .step { padding: 8px 12px; border-top: 1px dashed var(--line); font-size: 13px; }
+  .step .name { font-weight: 600; }
+  .step .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-left: 6px; background: var(--accent-soft); color: var(--accent); }
+  .step .tag.err { background: var(--err-soft); color: var(--err); }
+  .step code { font-family: var(--mono); font-size: 12px; }
+  .hits { margin-top: 4px; font-size: 12px; color: var(--muted); }
+  .hits b { color: var(--accent); font-family: var(--mono); font-weight: normal; }
+  details { margin-top: 4px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  pre { font-family: var(--mono); font-size: 11.5px; background: var(--tool); padding: 8px; border-radius: 6px;
+        overflow-x: auto; max-height: 240px; margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; }
+  .turn-foot { padding: 6px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .hint { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td { padding: 4px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  td.id { font-family: var(--mono); color: var(--accent); cursor: pointer; white-space: nowrap; }
+  #orders-wrap { border-top: 1px solid var(--line); max-height: 34%; overflow-y: auto; padding: 8px 16px 12px; }
+  #orders-wrap h3 { font-size: 13px; margin: 4px 0 6px; }
+  #orders-wrap h3 small { color: var(--muted); font-weight: normal; }
+  .typing::after { content: "▍"; animation: blink 1s steps(1) infinite; color: var(--muted); }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; height: auto; padding: 12px 16px; }
+    .panel { height: 70vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>林间优选 · 售后客服 Agent</h1>
+  <label>模型 <select id="provider"></select></label>
+  <label>登录用户 <select id="user"></select></label>
+  <button id="new">新对话</button>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>客服窗口<small>用户看到的界面</small></h2>
+    <div id="messages"></div>
+    <div class="examples" id="examples"></div>
+    <form id="form">
+      <input id="input" placeholder="输入问题，或点上面的示例" autocomplete="off">
+      <button class="primary" id="send">发送</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>幕后：Agent 在做什么<small>每一轮调用了哪些工具、拿到了什么数据</small></h2>
+    <div id="trace"><p class="hint">发送一条消息后，这里会实时显示模型调用工具的过程。</p></div>
+    <div id="orders-wrap">
+      <h3>当前用户的订单 <small>（数据库里的真实数据，点订单号可填入输入框）</small></h3>
+      <table id="orders"></table>
+    </div>
+  </section>
+</main>
+
+<script>
+const TOOL_LABELS = {
+  search_policy: "查知识库", list_my_orders: "查订单列表", get_order_detail: "查订单详情", get_logistics: "查物流",
+  get_aftersale_status: "查售后进度", transfer_to_human: "转人工",
+};
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+let sessionId = null, busy = false, turnNo = 0;
+
+function scroll(el) { el.scrollTop = el.scrollHeight; }
+function setBusy(v) { busy = v; $("send").disabled = v; $("input").disabled = v; }
+
+function argsText(t) {
+  if (t.arguments == null) return t.raw_arguments || "";
+  return Object.entries(t.arguments).map(([k, v]) => `${k}=${v}`).join(", ");
+}
+function kbHits(ev) {
+  // 知识库检索：直接列出命中的条款编号和标题，比看原始 JSON 直观
+  if (ev.name !== "search_policy" || ev.is_error) return "";
+  try {
+    const hits = JSON.parse(ev.result).results || [];
+    return `<div class="hits">${hits.map((h) => `<div><b>${esc(h.id)}</b> ${esc(h.title)}</div>`).join("")}</div>`;
+  } catch { return ""; }
+}
+function pretty(s) { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; } }
+
+async function loadMeta() {
+  const meta = await (await fetch("/api/meta")).json();
+  $("provider").innerHTML = meta.providers.map((p) =>
+    `<option value="${p.name}" ${p.ready ? "" : "disabled"}>${esc(p.label)} · ${esc(p.model)}${p.ready ? "" : "（未配置 key）"}</option>`).join("");
+  // 默认选 .env 里配置的厂商；它没配 key 时，选第一个可用的
+  const preferred = meta.providers.find((p) => p.ready && p.name === meta.default_provider)
+    || meta.providers.find((p) => p.ready);
+  if (preferred) $("provider").value = preferred.name;
+  $("user").innerHTML = meta.users.map((u) => `<option value="${u.id}">${esc(u.nickname)}（${u.id}）</option>`).join("");
+  $("examples").innerHTML = meta.examples.map((e) => `<button type="button">${esc(e)}</button>`).join("");
+  $("examples").querySelectorAll("button").forEach((b) => b.onclick = () => send(b.textContent));
+}
+
+async function loadOrders() {
+  const rows = await (await fetch(`/api/orders?user_id=${$("user").value}`)).json();
+  $("orders").innerHTML = rows.map((o) => `<tr><td class="id">${o.id}</td><td>${esc(o.status)}</td>
+    <td>${esc(o.items)}</td><td>${o.days_since_signed == null ? "" : `签收 ${o.days_since_signed} 天`}</td></tr>`).join("");
+  $("orders").querySelectorAll("td.id").forEach((td) => td.onclick = () => { $("input").value += td.textContent; $("input").focus(); });
+}
+
+async function newSession() {
+  if (busy) return;
+  $("messages").innerHTML = "";
+  $("trace").innerHTML = `<p class="hint">发送一条消息后，这里会实时显示模型调用工具的过程。</p>`;
+  turnNo = 0;
+  sessionId = null;
+  loadOrders();
+  const res = await fetch("/api/session", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: $("provider").value, user_id: $("user").value }) });
+  const data = await res.json();
+  if (!res.ok) { addBanner(data.detail || "新建会话失败", true); return; }
+  sessionId = data.session_id;
+  addBot().textContent = "您好，我是林间优选售后客服小林，请问有什么可以帮您？";
+}
+
+function addUser(text) {
+  const div = document.createElement("div");
+  div.className = "msg user";
+  div.innerHTML = `<div class="bubble">${esc(text)}</div>`;
+  $("messages").append(div); scroll($("messages"));
+}
+function addBot() {
+  const div = document.createElement("div");
+  div.className = "msg bot";
+  div.innerHTML = `<div class="bubble"></div>`;
+  $("messages").append(div); scroll($("messages"));
+  return div.querySelector(".bubble");
+}
+function addBanner(text, err = false) {
+  const div = document.createElement("div");
+  div.className = "banner" + (err ? " err" : "");
+  div.textContent = text;
+  $("messages").append(div); scroll($("messages"));
+}
+
+async function send(text) {
+  text = (text ?? $("input").value).trim();
+  if (!text || busy) return;
+  if (!sessionId) await newSession();
+  if (!sessionId) return;
+  $("input").value = "";
+  setBusy(true);
+  addUser(text);
+
+  // 右侧：本轮的执行过程
+  if (turnNo === 0) $("trace").innerHTML = "";
+  turnNo++;
+  const turn = document.createElement("div");
+  turn.className = "turn";
+  turn.innerHTML = `<div class="turn-head">第 ${turnNo} 轮 · 用户：<b>${esc(text)}</b></div>`;
+  $("trace").append(turn); scroll($("trace"));
+
+  // 左侧：回复气泡。文字和工具调用按到达顺序穿插显示
+  const bubble = addBot();
+  bubble.classList.add("typing");
+  let seg = document.createElement("span");
+  bubble.append(seg);
+  let segText = "";
+
+  try {
+    const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, message: text }) });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const reader = res.body.getReader(), decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, idx); buf = buf.slice(idx + 2);
+        if (!line.startsWith("data: ")) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.type === "text") {
+          segText += ev.text; seg.innerHTML = fmt(segText); scroll($("messages"));
+        } else if (ev.type === "tool") {
+          const label = TOOL_LABELS[ev.name] || ev.name;
+          const chip = document.createElement("span");
+          chip.className = "chip-tool" + (ev.is_error ? " err" : "");
+          chip.textContent = `⚙ ${label}${ev.is_error ? " · 失败" : " · 完成"}`;
+          bubble.append(chip);
+          seg = document.createElement("span"); bubble.append(seg); segText = "";
+          const step = document.createElement("div");
+          step.className = "step";
+          step.innerHTML = `<span class="name">⚙ ${esc(label)}</span>
+            <span class="tag ${ev.is_error ? "err" : ""}">${ev.is_error ? "返回错误" : "成功"}</span><br>
+            <code>${esc(ev.name)}(${esc(argsText(ev))})</code>${kbHits(ev)}
+            <details ${ev.is_error ? "open" : ""}><summary>查看工具返回给模型的数据</summary><pre>${esc(pretty(ev.result))}</pre></details>`;
+          turn.append(step); scroll($("trace"));
+        } else if (ev.type === "done") {
+          const u = ev.usage;
+          const foot = document.createElement("div");
+          foot.className = "turn-foot";
+          foot.textContent = `请求模型 ${ev.steps} 次 · 调用工具 ${ev.tool_calls} 次 · 输入 ${u.input_tokens} / 输出 ${u.output_tokens} tokens · ${ev.seconds} 秒 · ${ev.model}`;
+          if (ev.tool_calls === 0) {
+            const none = document.createElement("div");
+            none.className = "step"; none.innerHTML = `<span class="hint">本轮没有调用工具，模型直接回答</span>`;
+            turn.append(none);
+          }
+          turn.append(foot);
+          const m = document.createElement("div");
+          m.className = "meta"; m.textContent = `${ev.seconds} 秒 · 调用工具 ${ev.tool_calls} 次`;
+          $("messages").append(m);
+          if (ev.handoff) addBanner(`已转接人工客服（${ev.handoff.reason}）：${ev.handoff.summary}`);
+          if (ev.unverified_citations?.length) {
+            addBanner(`⚠ 引用核查未通过：回复里的 ${ev.unverified_citations.join("、")} 没有被检索到过，可能是模型编造的出处`, true);
+            const warn = document.createElement("div");
+            warn.className = "step"; warn.innerHTML = `<span class="tag err">引用核查</span> 编造的条款：${esc(ev.unverified_citations.join("、"))}`;
+            turn.insertBefore(warn, foot);
+          }
+        } else if (ev.type === "error") {
+          addBanner("出错了：" + ev.message, true);
+        }
+      }
+    }
+  } catch (e) {
+    addBanner("请求失败：" + e.message, true);
+  } finally {
+    bubble.classList.remove("typing");
+    if (!bubble.textContent.trim()) bubble.parentElement.remove();
+    setBusy(false); scroll($("messages")); scroll($("trace")); $("input").focus();
+  }
+}
+
+$("form").onsubmit = (e) => { e.preventDefault(); send(); };
+$("new").onclick = newSession;
+$("provider").onchange = newSession;
+$("user").onchange = newSession;
+loadMeta().then(newSession);
+</script>
+</body>
+</html>
