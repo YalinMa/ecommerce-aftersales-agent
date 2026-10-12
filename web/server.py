@@ -4,6 +4,7 @@
     python web/server.py          # 然后浏览器打开 http://localhost:8000（可用环境变量 PORT 换端口）
 
 接口：
+    GET  /eval                    最近一次评测报告（scripts/eval.py 生成）
     GET  /api/meta                厂商列表（是否配置了 key）、用户列表、示例问题
     GET  /api/orders?user_id=     某用户的订单（右侧面板展示用）
     POST /api/session             新建会话 {provider, user_id} → {session_id}
@@ -27,7 +28,7 @@ sys.path.insert(0, str(ROOT))
 
 import uvicorn  # noqa: E402
 from fastapi import FastAPI, HTTPException  # noqa: E402
-from fastapi.responses import FileResponse, StreamingResponse  # noqa: E402
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 from agent import config, db  # noqa: E402
@@ -80,6 +81,15 @@ def index():
     return FileResponse(Path(__file__).parent / "index.html")
 
 
+@app.get("/eval")
+def eval_report():
+    reports = sorted(config.RUNS_DIR.glob("*/eval_report.html"))
+    if not reports:
+        return HTMLResponse("<p style='font-family:sans-serif;padding:24px'>还没有评测报告。先运行 "
+                            "<code>python scripts/run_scenarios.py</code>，再运行 <code>python scripts/eval.py</code>。</p>")
+    return FileResponse(reports[-1])
+
+
 @app.get("/api/meta")
 def meta():
     with db.connect() as conn:
@@ -114,7 +124,8 @@ def new_session(body: NewSession):
     if not has_key(body.provider):
         raise HTTPException(400, f".env 中未配置 {PROVIDERS[body.provider].api_key_env}")
     try:
-        session = Session(get_provider(body.provider), user_id=body.user_id)
+        # 网页版的每轮对话都写入调用链路日志 runs/traces/日期.jsonl
+        session = Session(get_provider(body.provider), user_id=body.user_id, trace_dir=config.RUNS_DIR / "traces")
     except SystemExit as e:  # 用户不存在、数据库未生成等
         raise HTTPException(400, str(e))
     sid = uuid.uuid4().hex
@@ -135,7 +146,8 @@ def _stream_turn(run) -> StreamingResponse:
 
     def on_tool(r: ToolResult):
         events.put({"type": "tool", "name": r.call.name, "arguments": r.call.arguments,
-                    "raw_arguments": r.call.raw_arguments, "is_error": r.is_error, "result": r.content})
+                    "raw_arguments": r.call.raw_arguments, "is_error": r.is_error, "result": r.content,
+                    "ms": r.elapsed_ms})
 
     def worker():
         start = time.time()
@@ -146,6 +158,7 @@ def _stream_turn(run) -> StreamingResponse:
                         "unverified_citations": turn.unverified_citations,
                         "unverified_aftersale_ids": turn.unverified_aftersale_ids,
                         "pending_actions": turn.pending_actions, "commit_result": turn.commit_result,
+                        "trace": turn.trace, "latency_ms": turn.latency_ms, "first_token_ms": turn.first_token_ms,
                         "seconds": round(time.time() - start, 1)})
         except Exception as e:
             events.put({"type": "error", "message": f"{type(e).__name__}: {e}"})

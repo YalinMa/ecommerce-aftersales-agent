@@ -99,6 +99,7 @@
   <label>模型 <select id="provider"></select></label>
   <label>登录用户 <select id="user"></select></label>
   <button id="new">新对话</button>
+  <a href="/eval" target="_blank" style="margin-left:auto;color:var(--accent);font-size:13px">评测报告 ↗</a>
 </header>
 
 <main>
@@ -284,7 +285,8 @@ async function runTurn(url, body, headHtml) {
           const step = document.createElement("div");
           step.className = "step";
           step.innerHTML = `<span class="name">⚙ ${esc(label)}</span>
-            <span class="tag ${ev.is_error ? "err" : ""}">${ev.is_error ? "返回错误" : "成功"}</span><br>
+            <span class="tag ${ev.is_error ? "err" : ""}">${ev.is_error ? "返回错误" : "成功"}</span>
+            <span class="hint">${ev.ms} ms</span><br>
             <code>${esc(ev.name)}(${esc(argsText(ev))})</code>${kbHits(ev)}
             <details ${ev.is_error ? "open" : ""}><summary>查看工具返回给模型的数据</summary><pre>${esc(pretty(ev.result))}</pre></details>`;
           turn.append(step); scroll($("trace"));
@@ -298,7 +300,11 @@ async function runTurn(url, body, headHtml) {
           }
           const foot = document.createElement("div");
           foot.className = "turn-foot";
-          foot.textContent = `请求模型 ${ev.steps} 次 · 调用工具 ${ev.tool_calls} 次 · 输入 ${u.input_tokens} / 输出 ${u.output_tokens} tokens · ${ev.seconds} 秒 · ${ev.model}`;
+          // 耗时分解：模型推理 vs 工具执行，看清时间花在哪
+          const llmMs = (ev.trace || []).filter((s) => s.type === "llm").reduce((a, s) => a + s.ms, 0);
+          const toolMs = (ev.trace || []).filter((s) => s.type === "tool").reduce((a, s) => a + s.ms, 0);
+          foot.innerHTML = `请求模型 ${ev.steps} 次 · 调用工具 ${ev.tool_calls} 次 · 输入 ${u.input_tokens} / 输出 ${u.output_tokens} tokens · ${ev.model}<br>
+            总耗时 ${ev.seconds} 秒（模型 ${(llmMs / 1000).toFixed(1)} 秒 · 工具 ${toolMs} 毫秒）${ev.first_token_ms ? ` · 首字 ${(ev.first_token_ms / 1000).toFixed(1)} 秒` : ""}`;
           if (ev.tool_calls === 0) {
             const none = document.createElement("div");
             none.className = "step"; none.innerHTML = `<span class="hint">本轮没有调用工具，模型直接回答</span>`;

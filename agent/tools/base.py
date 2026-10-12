@@ -43,6 +43,7 @@ class ToolResult:
     call: ToolCall
     content: str
     is_error: bool = False
+    elapsed_ms: int = 0           # 工具执行耗时，由 Session 记录
 
 
 @dataclass

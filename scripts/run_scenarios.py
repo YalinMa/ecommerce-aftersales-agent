@@ -84,6 +84,7 @@ def run_one(provider, scenario: dict) -> dict:
             "handoff": turn.handoff,
             "unverified_citations": turn.unverified_citations,
             "unverified_aftersale_ids": turn.unverified_aftersale_ids,
+            "trace": turn.trace, "latency_ms": turn.latency_ms, "first_token_ms": turn.first_token_ms,
             "usage": turn.usage,
         })
     result = {
@@ -238,13 +239,27 @@ def run_provider(name: str, model: str | None, scenarios: list[dict], out_dir: P
     (sub / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
     results = []
+    fatal = None
     with (sub / "raw.jsonl").open("w", encoding="utf-8") as raw:
         for s in scenarios:
+            if fatal:
+                break
             print(f"▶ {s['id']} {s['title']} ...", end=" ", flush=True)
-            try:
-                r = run_one(provider, s)
-            except Exception as e:  # 单个场景失败不影响其他场景
-                print(f"失败：{type(e).__name__}: {e}")
+            r = None
+            for attempt in range(2):   # 网络抖动等临时错误，整个场景重跑一次
+                try:
+                    r = run_one(provider, s)
+                    break
+                except Exception as e:  # 单个场景失败不影响其他场景
+                    if attempt == 0 and type(e).__name__ in ("APIConnectionError", "APITimeoutError", "InternalServerError"):
+                        print(f"（{type(e).__name__}，重试）", end=" ", flush=True)
+                        continue
+                    print(f"失败：{type(e).__name__}: {e}")
+                    # 额度用完、key 无效：后面的场景也不会成功，直接停止这个厂商
+                    if "insufficient_quota" in str(e) or type(e).__name__ == "AuthenticationError":
+                        fatal = "额度不足" if "insufficient_quota" in str(e) else "认证失败"
+                        print(f"⚠ {label} {fatal}，跳过剩余场景")
+            if r is None:
                 continue
             results.append(r)
             raw.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")

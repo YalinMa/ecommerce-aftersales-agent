@@ -21,10 +21,15 @@ V3 起有写操作（提交售后申请）。写操作多一道关卡：模型�
 
 import json
 import re
+import time
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import Callable
 
 from agent import config, db, guards
+from agent.knowledge import load_chunks
 from agent.providers import Provider, get_provider
 from agent.providers.base import add_usage, empty_usage
 from agent.tools import TOOLS, Tool, ToolContext, ToolResult, execute
@@ -34,6 +39,17 @@ from agent.tools.aftersale import COMMITTERS, log_cancel
 MAX_STEPS = 6
 # 知识库条款编号，如 R-01、F-02
 CLAUSE_ID = re.compile(r"(?<![A-Za-z0-9])([A-Z]-\d{2})(?![0-9])")   # 中文紧挨编号时 \b 不生效，所以用前后断言
+# 引用格式"R-07 换货规则"：编号后面紧跟的标题
+CITED_TITLE = re.compile(r"(?<![A-Za-z0-9])([A-Z]-\d{2})\s*([\u4e00-\u9fff][^；;，,。\n）)]{1,20})")
+CLAUSE_TITLES = {c.id: c.title for c in load_chunks()}
+
+
+def _overlap(a: str, b: str) -> float:
+    """两段中文标题的相似度：a 的相邻两字组合有多少出现在 b 里。"""
+    grams = {a[i:i + 2] for i in range(len(a) - 1)}
+    return sum(g in b for g in grams) / len(grams) if grams else 1.0
+
+
 EMPTY_REPLY_FALLBACK = "抱歉，我刚才没有组织好回复，麻烦您再说一次，或者换个说法告诉我需要办理什么。"
 # 售后单号，如 AS1011210725C1
 AFTERSALE_ID = re.compile(r"(?<![A-Za-z0-9])AS[0-9A-Z]{3,}(?![A-Za-z0-9])")
@@ -54,12 +70,20 @@ class TurnResult:
     unverified_aftersale_ids: list[str] = field(default_factory=list)  # 回复里出现、但程序从未创建或查到的售后单号
     pending_actions: list[dict] = field(default_factory=list)      # 本轮新生成、等待用户确认的写操作
     commit_result: dict | None = None                              # confirm() 执行写操作的结果
+    # 可观测性（V5）
+    trace: list[dict] = field(default_factory=list)   # 每次模型请求、每次工具调用的耗时和用量
+    latency_ms: int = 0                                # 本轮总耗时
+    first_token_ms: int | None = None                  # 用户看到第一个字的时间
 
 
 class Session:
     def __init__(self, provider: Provider | None = None, user_id: str = "u1001",
-                 tools: list[Tool] | None = None, system_prompt: str | None = None):
+                 tools: list[Tool] | None = None, system_prompt: str | None = None,
+                 trace_dir: Path | None = None):
+        """trace_dir：设置后，每轮对话的完整链路追加写入该目录下的 JSONL 日志（网页版默认开启）。"""
         db.ensure_exists()
+        self.id = uuid.uuid4().hex[:12]
+        self.trace_dir = trace_dir
         self.provider = provider or get_provider()
         self.ctx = ToolContext(user_id=user_id)
         self.tools = TOOLS if tools is None else tools
@@ -86,14 +110,27 @@ class Session:
         turn = TurnResult(text="", steps=0)
         texts: list[str] = []
         self.ctx.handoff = None
+        started = time.perf_counter()
+        ms = lambda t0: int((time.perf_counter() - t0) * 1000)   # noqa: E731
+
+        user_on_text = on_text
+
+        def on_text(chunk: str):   # 包一层，记录首字时间
+            if turn.first_token_ms is None and chunk.strip():
+                turn.first_token_ms = ms(started)
+            if user_on_text:
+                user_on_text(chunk)
 
         try:
             empty_retried = False
             for step in range(MAX_STEPS):
                 # 最后一步禁止再调工具，强制模型基于已有信息给出回复
                 allow_tools = step < MAX_STEPS - 1
+                t0 = time.perf_counter()
                 r = self.provider.step(self.system_prompt, self.messages, self.tools,
                                        on_text=on_text, allow_tools=allow_tools)
+                turn.trace.append({"type": "llm", "step": step + 1, "ms": ms(t0), **r.usage,
+                                   "tool_calls": [c.name for c in r.tool_calls], "text_chars": len(r.text)})
                 add_usage(turn.usage, r.usage)
                 turn.steps, turn.model = step + 1, r.model
                 # 兜底：整轮既没有文字也没有工具调用（推理模型偶尔把内容全写进思考过程），重试一次
@@ -108,7 +145,11 @@ class Session:
 
                 results = []
                 for call in r.tool_calls:
+                    t0 = time.perf_counter()
                     result = execute(call, self.ctx)
+                    result.elapsed_ms = ms(t0)
+                    turn.trace.append({"type": "tool", "name": call.name, "ms": result.elapsed_ms,
+                                       "is_error": result.is_error})
                     results.append(result)
                     if on_tool:
                         on_tool(result)
@@ -145,7 +186,31 @@ class Session:
             if (a := self.ctx.pending.get(json.loads(r.content)["action_id"]))
         ]
         add_usage(self.total_usage, turn.usage)
+        turn.latency_ms = ms(started)
+        self._log(user_text, turn, is_notice)
         return turn
+
+    def _log(self, user_text: str, turn: TurnResult, is_notice: bool):
+        """把本轮的完整链路写入日志。线上出了问题，靠它还原"当时模型看到了什么、做了什么"。"""
+        if not self.trace_dir:
+            return
+        self.trace_dir.mkdir(parents=True, exist_ok=True)
+        record = {
+            "time": datetime.now().isoformat(timespec="seconds"),
+            "session_id": self.id, "user_id": self.ctx.user_id,
+            "provider": self.provider.name, "model": turn.model,
+            "input": user_text, "is_notice": is_notice, "reply": turn.text,
+            "latency_ms": turn.latency_ms, "first_token_ms": turn.first_token_ms, "steps": turn.steps,
+            "usage": turn.usage, "trace": turn.trace,
+            "tools": [{"name": r.call.name, "arguments": r.call.arguments, "is_error": r.is_error,
+                       "ms": r.elapsed_ms} for r in turn.tool_results],
+            "handoff": turn.handoff, "pending_actions": turn.pending_actions,
+            "commit_result": turn.commit_result,
+            "flags": {"unverified_citations": turn.unverified_citations,
+                      "unverified_aftersale_ids": turn.unverified_aftersale_ids},
+        }
+        with (self.trace_dir / f"{datetime.now():%Y%m%d}.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
 
     def confirm(self, action_id: str, on_text: Callable[[str], None] | None = None,
                 on_tool: Callable[[ToolResult], None] | None = None) -> TurnResult:
@@ -186,7 +251,14 @@ class Session:
                 self.retrieved_ids.update(h["id"] for h in json.loads(r.content)["results"])
             elif r.call.name == "check_return_eligibility":   # 规则引擎返回的依据条款也是真实来源
                 self.retrieved_ids.update(json.loads(r.content).get("clauses", []))
-        return sorted(set(CLAUSE_ID.findall(turn.text)) - self.retrieved_ids)
+        fake = set(CLAUSE_ID.findall(turn.text)) - self.retrieved_ids
+        # 编号是真的，但后面写的标题对不上（如"R-07 运费险保障"，实际 R-07 是换货规则），同样算编造
+        for cid, title in CITED_TITLE.findall(turn.text):
+            real = CLAUSE_TITLES.get(cid)
+            # 只抓几乎毫无关系的标题；措辞改写（"退货商品需保持完好"）交给评分模型判断，避免误报
+            if real and cid not in fake and _overlap(title, real) < 0.15:
+                fake.add(f"{cid}（写成「{title}」，实为「{real}」）")
+        return sorted(fake)
 
     def _check_aftersale_ids(self, turn: TurnResult) -> list[str]:
         """和引用核查同理：回复里出现的售后单号，必须是程序真正创建或从数据库查到的。
