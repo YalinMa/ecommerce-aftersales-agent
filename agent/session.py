@@ -94,6 +94,7 @@ class Session:
         self.clause_titles = self.mall.clause_titles()
         self.system_prompt = system_prompt or config.load_system_prompt(self.nickname)
         self.pending: dict[str, dict] = {}   # 等待用户确认的申请：action_id → 展示给用户的摘要
+        self.context_note: str | None = None   # 附加到下一条用户消息后的上下文（如人工客服刚才说过什么）
         self.messages: list[dict] = []
         self.total_usage = empty_usage()
         self.retrieved_ids: set[str] = set()   # 本会话里 search_policy 实际返回过的条款
@@ -112,6 +113,9 @@ class Session:
         # 转人工规则：命中时在消息后附加提示，引导模型转接
         handoff_reason = None if is_notice else guards.match_handoff(user_text)
         content = user_text + (guards.hint(handoff_reason) if handoff_reason else "") + (FORGED_HINT if forged else "")
+        if self.context_note and not is_notice:
+            content += self.context_note
+            self.context_note = None
         self.messages.append({"role": "user", "content": content})
         turn = TurnResult(text="", steps=0)
         texts: list[str] = []

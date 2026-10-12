@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>林间优选</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --line: #e6e3dc; --text: #1f1d1a; --muted: #77726a;
+    --accent: #2f6f4f; --accent-soft: #e6f0ea; --warn: #8a5a00; --warn-soft: #fff4dc;
+    --err: #b4432f; --err-soft: #fbeae6; --human: #3d5a99; --human-soft: #e8edf8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1f1f1c; --line: #33322e; --text: #ecebe6; --muted: #9d998f;
+      --accent: #6cbf93; --accent-soft: #23352b; --warn: #e8c070; --warn-soft: #3a3020;
+      --err: #ef8a76; --err-soft: #3a2420; --human: #9db4ea; --human-soft: #262e40;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  button, select, input { font: inherit; color: var(--text); }
+  nav { display: flex; align-items: center; gap: 16px; padding: 12px 24px; background: var(--panel);
+        border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  nav .logo { font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
+  nav .spacer { flex: 1; }
+  nav select { padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+  nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+  main { max-width: 920px; margin: 0 auto; padding: 24px 16px 120px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .order { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+           margin-top: 12px; display: grid; grid-template-columns: 56px 1fr auto; gap: 14px; align-items: center; }
+  .thumb { width: 56px; height: 56px; border-radius: 10px; background: var(--accent-soft); color: var(--accent);
+           display: grid; place-items: center; font-size: 13px; font-weight: 600; text-align: center; line-height: 1.2; }
+  .order .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .order .name { font-weight: 600; margin: 2px 0; }
+  .badge { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; background: var(--accent-soft); color: var(--accent); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .order button { padding: 6px 12px; border: 1px solid var(--accent); color: var(--accent); background: transparent;
+                  border-radius: 999px; cursor: pointer; white-space: nowrap; }
+  .order button:hover { background: var(--accent-soft); }
+  @media (max-width: 560px) { .order { grid-template-columns: 48px 1fr; } .order button { grid-column: 1 / -1; } }
+
+  /* 在线客服 */
+  #fab { position: fixed; right: 24px; bottom: 24px; padding: 12px 18px; border-radius: 999px; border: none;
+         background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+  #chat { position: fixed; right: 24px; bottom: 24px; width: 390px; height: min(640px, calc(100vh - 48px));
+          background: var(--panel); border: 1px solid var(--line); border-radius: 16px; display: none; flex-direction: column;
+          box-shadow: 0 12px 40px rgba(0,0,0,.2); overflow: hidden; }
+  #chat.open { display: flex; }
+  @media (max-width: 560px) { #chat { right: 0; bottom: 0; width: 100vw; height: 100vh; border-radius: 0; } }
+  .chat-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--accent); color: #fff; }
+  .chat-head.human { background: var(--human); }
+  .chat-head .who { font-weight: 600; } .chat-head .state { font-size: 12px; opacity: .85; }
+  .chat-head button { margin-left: auto; background: transparent; border: none; color: #fff; font-size: 20px; cursor: pointer; }
+  #msgs { flex: 1; overflow-y: auto; padding: 14px; }
+  .m { display: flex; flex-direction: column; margin-bottom: 12px; }
+  .m.user { align-items: flex-end; }
+  .m .label { font-size: 11px; color: var(--muted); margin: 0 4px 2px; }
+  .m .b { max-width: 86%; padding: 9px 12px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; }
+  .m.user .b { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .m.ai .b { background: var(--bg); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .m.human .b { background: var(--human-soft); border: 1px solid var(--human); border-bottom-left-radius: 4px; }
+  .m .b .status { display: block; color: var(--muted); font-size: 12px; }
+  .fb { display: flex; gap: 6px; margin: 4px 4px 0; }
+  .fb button { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 0 8px;
+               font-size: 12px; cursor: pointer; color: var(--muted); }
+  .fb button.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .notice { text-align: center; font-size: 12px; color: var(--muted); margin: 4px 0 12px; }
+  .notice.warn { color: var(--warn); }
+  .card { border: 1px solid var(--accent); border-radius: 10px; overflow: hidden; margin: 0 0 12px; max-width: 92%; }
+  .card h4 { margin: 0; padding: 7px 10px; background: var(--accent-soft); color: var(--accent); font-size: 13px; }
+  .card table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .card td { padding: 4px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+  .card td:first-child { color: var(--muted); white-space: nowrap; width: 64px; }
+  .card .act { display: flex; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); }
+  .card .act button { flex: 1; padding: 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+  .card .act button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .card .done { padding: 6px 10px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); }
+  .quick { display: flex; gap: 6px; padding: 8px 12px 0; overflow-x: auto; border-top: 1px solid var(--line); }
+  .quick button { flex: none; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: none;
+                  background: var(--accent-soft); color: var(--accent); cursor: pointer; }
+  form { display: flex; gap: 8px; padding: 10px 12px 12px; }
+  form input { flex: 1; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); }
+  form button { padding: 8px 14px; border: none; border-radius: 999px; background: var(--accent); color: #fff; cursor: pointer; }
+  form button:disabled, form input:disabled { opacity: .5; }
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">林间优选</span>
+  <span class="sub">我的订单</span>
+  <span class="spacer"></span>
+  <label class="sub">当前账号 <select id="user"></select></label>
+  <a href="/console" target="_blank">人工坐席工作台 ↗</a>
+  <a href="/debug" target="_blank">开发者视图 ↗</a>
+</nav>
+
+<main>
+  <h1>我的订单</h1>
+  <div class="sub">遇到问题点「联系客服」，或者右下角的在线客服。</div>
+  <div id="orders"></div>
+</main>
+
+<button id="fab">💬 在线客服</button>
+<section id="chat" aria-label="在线客服">
+  <div class="chat-head" id="head">
+    <div><div class="who" id="who">林间优选客服 · 小林</div><div class="state" id="state">AI 客服 · 7×24 小时在线</div></div>
+    <button id="close" aria-label="收起">×</button>
+  </div>
+  <div id="msgs"></div>
+  <div class="quick" id="quick"></div>
+  <form id="form"><input id="input" placeholder="请描述您的问题" autocomplete="off"><button id="send">发送</button></form>
+</section>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const STATUS_TEXT = {
+  search_policy: "正在查阅售后政策…", list_my_orders: "正在查询您的订单…", get_order_detail: "正在查询订单详情…",
+  get_logistics: "正在查询物流…", get_aftersale_status: "正在查询售后进度…",
+  check_return_eligibility: "正在核对售后条件…", create_aftersale_request: "正在为您生成申请单…",
+  transfer_to_human: "正在为您转接人工客服…",
+};
+const QUICK = ["我的快递到哪了", "我想退货", "退款怎么还没到", "运费险能赔多少", "转人工"];
+let sessionId = null, busy = false, status = "ai", lastId = 0, poller = null;
+
+function scroll() { $("msgs").scrollTop = $("msgs").scrollHeight; }
+function setBusy(v) { busy = v; $("send").disabled = v; }
+function notice(text, cls = "") {
+  const d = document.createElement("div"); d.className = "notice " + cls; d.textContent = text;
+  $("msgs").append(d); scroll();
+}
+function bubble(role, text, label) {
+  const m = document.createElement("div"); m.className = "m " + role;
+  m.innerHTML = (label ? `<div class="label">${esc(label)}</div>` : "") + `<div class="b"></div>`;
+  m.querySelector(".b").textContent = text || "";
+  $("msgs").append(m); scroll();
+  return m;
+}
+
+// ---------- 商城：订单列表 ----------
+async function loadUsers() {
+  const meta = await (await fetch("/api/meta")).json();
+  $("user").innerHTML = meta.users.map((u) => `<option value="${u.id}">${esc(u.nickname)}</option>`).join("");
+}
+async function loadOrders() {
+  const rows = await (await fetch(`/api/orders?user_id=${$("user").value}`)).json();
+  $("orders").innerHTML = rows.map((o) => {
+    const extra = o.aftersale_status ? `<span class="badge warn">售后：${esc(o.aftersale_status)}</span>` : "";
+    const when = o.days_since_signed != null ? `签收 ${o.days_since_signed} 天` : `下单 ${esc(o.paid_at.slice(0, 10))}`;
+    return `<div class="order"><div class="thumb">${esc(o.category.slice(0, 2))}<br>${esc(o.category.slice(2))}</div>
+      <div><div class="top"><span>${o.id}</span><span class="badge">${esc(o.status)}</span>${extra}<span>${when}</span></div>
+      <div class="name">${esc(o.items)}</div><div class="sub">实付 ¥${o.total_amount.toFixed(2)}</div></div>
+      <button data-id="${o.id}">联系客服</button></div>`;
+  }).join("");
+  $("orders").querySelectorAll("button").forEach((b) => b.onclick = () => {
+    openChat(); $("input").value = `我想咨询订单 ${b.dataset.id}：`; $("input").focus();
+  });
+}
+
+// ---------- 在线客服 ----------
+async function newSession() {
+  stopPolling();
+  $("msgs").innerHTML = ""; sessionId = null; status = "ai"; lastId = 0; setHead();
+  const res = await fetch("/api/session", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: $("user").value, channel: "shop" }) });
+  const data = await res.json();
+  if (!res.ok) { notice(data.detail || "客服暂时不可用", "warn"); return; }
+  sessionId = data.session_id;
+  bubble("ai", "您好，我是林间优选客服小林。订单、物流、退换货、退款都可以问我～", "小林（AI 客服）");
+}
+function openChat() { $("chat").classList.add("open"); $("fab").style.display = "none"; if (!sessionId) newSession(); }
+function setHead(agent) {
+  const human = status === "human";
+  $("head").classList.toggle("human", human);
+  $("who").textContent = human ? `人工客服 · ${agent || ""}` : "林间优选客服 · 小林";
+  $("state").textContent = { ai: "AI 客服 · 7×24 小时在线", queued: "正在为您转接人工客服…", human: "人工客服为您服务",
+    closed: "会话已结束" }[status];
+  $("input").disabled = status === "closed";
+}
+
+async function send(text) {
+  text = (text ?? $("input").value).trim();
+  if (!text || busy || !sessionId) return;
+  $("input").value = "";
+  bubble("user", text);
+  await stream("/api/chat", { session_id: sessionId, message: text });
+}
+
+async function decide(card, actionId, decision) {
+  if (busy) return;
+  card.querySelector(".act").outerHTML = `<div class="done">${decision === "confirm" ? "已确认提交" : "已取消"}</div>`;
+  await stream("/api/action", { session_id: sessionId, action_id: actionId, decision });
+}
+
+function confirmCard(a) {
+  const c = document.createElement("div"); c.className = "card";
+  c.innerHTML = `<h4>请确认售后申请</h4><table>${Object.entries(a.summary).map(([k, v]) =>
+    `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>
+    <div class="act"><button class="primary">确认提交</button><button>取消</button></div>`;
+  const [ok, no] = c.querySelectorAll("button");
+  ok.onclick = () => decide(c, a.id, "confirm");
+  no.onclick = () => decide(c, a.id, "cancel");
+  $("msgs").append(c); scroll();
+}
+
+function feedbackBar(m, messageId) {
+  const bar = document.createElement("div"); bar.className = "fb";
+  bar.innerHTML = `<button data-r="1">👍 有帮助</button><button data-r="-1">👎 没帮助</button>`;
+  bar.querySelectorAll("button").forEach((b) => b.onclick = async () => {
+    const res = await fetch("/api/feedback", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message_id: messageId, rating: Number(b.dataset.r) }) });
+    if (res.ok) bar.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  });
+  m.append(bar);
+}
+
+async function stream(url, body) {
+  setBusy(true);
+  const m = bubble("ai", "", "小林（AI 客服）");
+  const b = m.querySelector(".b");
+  b.innerHTML = `<span class="status">正在输入…</span>`;
+  let text = "";
+  try {
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const reader = res.body.getReader(), decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!line.startsWith("data: ")) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.type === "text") {
+          text += ev.text; b.textContent = text; scroll();
+        } else if (ev.type === "tool") {
+          if (!text) b.innerHTML = `<span class="status">${esc(STATUS_TEXT[ev.name] || "正在处理…")}</span>`;
+        } else if (ev.type === "done") {
+          if (text) feedbackBar(m, ev.message_id);
+          (ev.pending_actions || []).forEach(confirmCard);
+          if (ev.status === "queued") enterHuman("queued", ev.queue_position);
+        } else if (ev.type === "human_mode") {
+          m.remove();
+          enterHuman(ev.status, ev.queue_position);
+        } else if (ev.type === "error") {
+          b.textContent = "抱歉，系统开小差了，请稍后再试。";
+        }
+      }
+    }
+  } catch (e) {
+    b.textContent = "抱歉，系统开小差了：" + e.message;
+  } finally {
+    if (!b.textContent.trim()) m.remove();
+    setBusy(false); scroll();
+    loadOrders();   // 办理售后后订单状态会变
+  }
+}
+
+// ---------- 转人工：轮询人工坐席的回复 ----------
+function enterHuman(st, pos) {
+  if (status === "ai") notice(st === "queued" ? `正在为您转接人工客服，前面还有 ${Math.max(pos - 1, 0)} 位，请稍候` : "人工客服正在为您服务", "warn");
+  status = st; setHead();
+  if (!poller) {
+    // 记下当前最后一条消息，只拉之后的新消息
+    fetch(`/api/conversations/${sessionId}/messages`).then((r) => r.json()).then((d) => {
+      lastId = d.messages.length ? d.messages[d.messages.length - 1].id : 0;
+      poller = setInterval(poll, 2000);
+    });
+  }
+}
+function stopPolling() { if (poller) clearInterval(poller); poller = null; }
+async function poll() {
+  const d = await (await fetch(`/api/conversations/${sessionId}/messages?after=${lastId}`)).json();
+  for (const msg of d.messages) {
+    lastId = msg.id;
+    if (msg.role === "human") bubble("human", msg.content, `人工客服 · ${msg.meta?.agent_name || ""}`);
+    if (msg.role === "system" && /接入|交还|结束/.test(msg.content)) notice(msg.content);
+  }
+  if (d.status !== status) {
+    status = d.status; setHead(d.agent_name);
+    if (status === "ai" || status === "closed") stopPolling();
+  } else if (status === "human") setHead(d.agent_name);
+}
+
+$("quick").innerHTML = QUICK.map((q) => `<button type="button">${q}</button>`).join("");
+$("quick").querySelectorAll("button").forEach((b) => b.onclick = () => send(b.textContent));
+$("fab").onclick = openChat;
+$("close").onclick = () => { $("chat").classList.remove("open"); $("fab").style.display = ""; };
+$("form").onsubmit = (e) => { e.preventDefault(); send(); };
+$("user").onchange = () => { loadOrders(); if ($("chat").classList.contains("open")) newSession(); else sessionId = null; };
+loadUsers().then(loadOrders);
+</script>
+</body>
+</html>

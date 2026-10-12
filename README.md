@@ -2,6 +2,12 @@
 
 一个从零手写、逐版本迭代的电商售后 Agent，用来理解大模型应用的完整工作流程。
 
+| 商城前台：AI 查完物流后转人工 | 人工坐席工作台 |
+|---|---|
+| ![商城前台](docs/images/shop-handoff.jpg) | ![人工坐席工作台](docs/images/console.jpg) |
+| **交还 AI 后，AI 记得人工说过什么** | **评测报告：自动检查 + 模型评分** |
+| ![交还 AI](docs/images/shop-human-to-ai.jpg) | ![评测报告](docs/images/eval-report.jpg) |
+
 | 版本 | 内容 | 状态 |
 |---|---|---|
 | V0 | 纯对话：system prompt + 多轮对话 + 场景回放 | ✅ |
@@ -10,7 +16,7 @@
 | V3 | 写操作：代提交售后申请，规则引擎校验、用户确认、幂等、审计日志、转人工规则兜底 | ✅ |
 | V4 | MCP 化：商城拆成独立 MCP 服务，签名令牌传递身份、确认签名保护写操作，可接入 Claude Desktop | ✅ |
 | V5 | 评测和可观测：模型评分（含评分模型校准）、调用链路追踪、可视化评测报告 | ✅ |
-| V6 | 产品化：嵌入模拟商城、流式输出、转人工 | ⏳ |
+| V6 | 产品化：商城前台嵌入在线客服、人工坐席工作台（排队 / 接入 / 交还 AI）、用户反馈、运营数据 | ✅ |
 
 ## 快速开始
 
@@ -24,7 +30,7 @@ cp .env.example .env                  # 填入要用的厂商的 API key
 python scripts/seed_data.py           # 生成模拟商城数据（时间相对于当前，隔天测试前重新生成）
 python scripts/build_index.py         # 构建知识库索引（修改 knowledge/ 后需重新运行）
 
-python web/server.py                  # 网页版演示：打开 http://localhost:8000，左边聊天、右边看工具调用过程
+python web/server.py                  # 打开它打印的地址：商城前台 /shop、人工坐席 /console、开发者视图 /debug、评测报告 /eval
 python chat.py -p deepseek            # 命令行对话，输入 /orders 查看当前用户的订单
 python -m mall.mcp_server             # 单独启动商城 MCP 服务（不启动也行，客服 Agent 会自动拉起本机服务）
 python chat.py -p deepseek -u u1002   # 以其他用户身份登录
@@ -95,7 +101,13 @@ mall/                        商城业务方（不引用 agent/ 的任何代码�
   db.py                      数据库连接
 knowledge/                   售后政策知识库（8 个文档、42 条条款）
 chat.py                      命令行客服窗口
-web/                         网页版演示（server.py 后端 + index.html 页面）
+web/                         客服平台网页
+  server.py                  后端：会话、流式回复、确认操作、人工队列、反馈、运营数据
+  store.py                   客服平台数据库 data/service.db：会话、消息、转人工、反馈
+  shop.html                  商城前台 + 在线客服
+  console.html               人工坐席工作台
+  debug.html                 开发者视图
+  home.html                  入口页
 evals/judge.py               评分模型：评分标准、对话整理、结果校验
 scenarios/                   测试场景（v0–v3 各版本对话场景，含自动检查规则；v2_retrieval 检索测试集；v5_judge_calibration 评分校准集）
 scripts/seed_data.py         生成模拟商城数据
@@ -118,4 +130,5 @@ docs/
   v4-notes.md                V4 学习笔记：MCP 拆分、身份令牌、跨服务确认签名、接入 Claude Desktop
   v5-notes.md                V5 学习笔记：评分设计、评分模型校准、可观测性、踩坑记录
   v5-findings.md             V5 评测结果
+  v6-notes.md                V6 学习笔记：转人工全流程、交还 AI 的上下文、用户反馈、运营数据、没做的事
 ```

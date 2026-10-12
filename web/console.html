@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>人工坐席工作台</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --line: #e6e3dc; --text: #1f1d1a; --muted: #77726a;
+    --accent: #2f6f4f; --accent-soft: #e6f0ea; --warn: #8a5a00; --warn-soft: #fff4dc;
+    --err: #b4432f; --err-soft: #fbeae6; --human: #3d5a99; --human-soft: #e8edf8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1f1f1c; --line: #33322e; --text: #ecebe6; --muted: #9d998f;
+      --accent: #6cbf93; --accent-soft: #23352b; --warn: #e8c070; --warn-soft: #3a3020;
+      --err: #ef8a76; --err-soft: #3a2420; --human: #9db4ea; --human-soft: #262e40;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  button, input, textarea { font: inherit; color: var(--text); }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--panel);
+           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; }
+  header input { width: 90px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+  .muted { color: var(--muted); font-size: 12px; }
+  header a { margin-left: auto; color: var(--muted); font-size: 13px; text-decoration: none; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; padding: 12px 20px 0; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  .stat b { display: block; font-size: 20px; color: var(--accent); }
+  .stat.alert b { color: var(--err); }
+  main { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 12px; padding: 12px 20px 20px;
+         height: calc(100vh - 160px); min-height: 480px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; height: auto; } #list { max-height: 320px; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+           display: flex; flex-direction: column; min-height: 0; }
+  #list { overflow-y: auto; }
+  .item { padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .item:hover, .item.on { background: var(--accent-soft); }
+  .item .row { display: flex; justify-content: space-between; gap: 8px; }
+  .item .last { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 999px; background: var(--line); color: var(--muted); }
+  .tag.queued { background: var(--err-soft); color: var(--err); }
+  .tag.human { background: var(--human-soft); color: var(--human); }
+  .tag.ai { background: var(--accent-soft); color: var(--accent); }
+  #detail { display: grid; grid-template-columns: minmax(0, 1fr) 260px; height: 100%; }
+  @media (max-width: 1100px) { #detail { grid-template-columns: 1fr; } #side { display: none; } }
+  .convo { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+  .dhead { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .handoff { margin-top: 6px; padding: 6px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; }
+  #thread { flex: 1; overflow-y: auto; padding: 12px 14px; }
+  .msg { margin-bottom: 10px; }
+  .msg .who { font-size: 11px; color: var(--muted); }
+  .msg .t { white-space: pre-wrap; word-break: break-word; padding: 6px 10px; border-radius: 8px; background: var(--bg); display: inline-block; max-width: 92%; }
+  .msg.user .t { background: var(--accent-soft); }
+  .msg.human .t { background: var(--human-soft); }
+  .msg.system { text-align: center; font-size: 12px; color: var(--muted); }
+  .msg .fb { font-size: 11px; margin-left: 6px; }
+  .msg .fb.bad { color: var(--err); font-weight: 600; }
+  .reply { border-top: 1px solid var(--line); padding: 10px 14px; }
+  .reply textarea { width: 100%; height: 64px; resize: vertical; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .reply .btns { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+  .reply button { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+  .reply button.primary { background: var(--human); border-color: var(--human); color: #fff; }
+  #side { overflow-y: auto; padding: 10px 12px; font-size: 12px; }
+  #side h3 { font-size: 13px; margin: 0 0 6px; }
+  #side .o { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .empty { display: grid; place-items: center; height: 100%; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>人工坐席工作台</h1>
+  <span class="muted">坐席</span><input id="agent" value="小周">
+  <span class="muted">每 3 秒自动刷新</span>
+  <a href="/shop" target="_blank">打开商城前台 ↗</a>
+</header>
+<div class="stats" id="stats"></div>
+<main>
+  <section class="panel"><div id="list"></div></section>
+  <section class="panel" id="detail"><div class="empty">选择左侧会话查看详情</div></section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const STATUS = { queued: "排队中", human: "人工接待中", ai: "AI 接待中", closed: "已结束" };
+let current = null, renderedCount = -1;
+
+function waited(ts) {
+  if (!ts) return "";
+  const m = Math.floor((Date.now() - new Date(ts.replace(" ", "T")).getTime()) / 60000);
+  return m < 1 ? "刚刚" : `已等 ${m} 分钟`;
+}
+
+async function loadStats() {
+  const s = await (await fetch("/api/console/stats")).json();
+  const pct = (v) => v == null ? "—" : `${Math.round(v * 100)}%`;
+  const sec = (v) => v == null ? "—" : `${(v / 1000).toFixed(1)} 秒`;
+  const cards = [
+    ["今日商城会话", s.conversations], ["转人工率", pct(s.handoff_rate)],
+    ["其中规则兜底", s.handoffs_by_rule], ["当前排队", s.queued_now, s.queued_now > 0],
+    ["👍 / 👎", `${s.thumbs_up} / ${s.thumbs_down}`, s.thumbs_down > 0],
+    ["AI 平均首字", sec(s.avg_first_token_ms)],
+  ];
+  $("stats").innerHTML = cards.map(([k, v, alert]) => `<div class="stat ${alert ? "alert" : ""}"><span class="muted">${k}</span><b>${v}</b></div>`).join("");
+}
+
+async function loadList() {
+  const rows = await (await fetch("/api/console/conversations")).json();
+  $("list").innerHTML = rows.map((c) => `<div class="item ${c.id === current ? "on" : ""}" data-id="${c.id}">
+      <div class="row"><b>${esc(c.nickname)}</b><span class="tag ${c.status}">${STATUS[c.status]}</span></div>
+      <div class="row muted"><span>${c.channel === "shop" ? "商城前台" : "调试页"} · ${esc(c.model)}</span>
+        <span>${c.status === "queued" ? waited(c.handoff_at) : esc(c.updated_at.slice(11, 16))}</span></div>
+      <div class="last">${c.handoff_summary ? "🔀 " + esc(c.handoff_summary) : esc(c.last_message?.content || "（还没有消息）")}</div>
+    </div>`).join("") || `<div class="empty" style="padding:24px">还没有会话</div>`;
+  $("list").querySelectorAll(".item").forEach((el) => el.onclick = () => { current = el.dataset.id; renderedCount = -1; refresh(); });
+}
+
+async function loadDetail() {
+  if (!current) return;
+  const c = await (await fetch(`/api/console/conversations/${current}`)).json();
+  // 消息没有变化时不重绘，避免打断坐席正在输入的回复
+  const key = c.messages.length + c.status;
+  if (key === renderedCount) return;
+  const draft = $("draft")?.value || "";
+  renderedCount = key;
+  const msgs = c.messages.map((m) => {
+    if (m.role === "system") return `<div class="msg system">— ${esc(m.content)} · ${esc(m.created_at.slice(11, 16))} —</div>`;
+    const who = { user: c.nickname, ai: "AI 客服小林", human: `人工客服 ${m.meta?.agent_name || ""}` }[m.role];
+    const fb = m.rating === -1 ? `<span class="fb bad">👎 用户反馈没帮助</span>` : m.rating === 1 ? `<span class="fb">👍</span>` : "";
+    const flags = m.meta?.flags?.length ? `<span class="fb bad">⚠ 核查未通过：${esc(m.meta.flags.join("、"))}</span>` : "";
+    return `<div class="msg ${m.role}"><div class="who">${esc(who)} · ${esc(m.created_at.slice(11, 16))}${fb}${flags}</div>
+      <div class="t">${esc(m.content)}</div></div>`;
+  }).join("");
+  const handoff = c.handoff_summary ? `<div class="handoff">🔀 转人工原因：${esc(c.handoff_reason)}（由${esc(c.handoff_by)}触发）<br>AI 交接摘要：${esc(c.handoff_summary)}</div>` : "";
+  const canReply = c.status !== "closed";
+  $("detail").innerHTML = `<div class="convo">
+      <div class="dhead"><b>${esc(c.nickname)}</b>（${esc(c.user_id)}） <span class="tag ${c.status}">${STATUS[c.status]}</span>
+        <span class="muted">${c.agent_name ? "坐席 " + esc(c.agent_name) + " · " : ""}${esc(c.model)}</span>${handoff}</div>
+      <div id="thread">${msgs}</div>
+      <div class="reply">${canReply ? `<textarea id="draft" placeholder="输入回复，Enter 发送，Shift+Enter 换行">${esc(draft)}</textarea>
+        <div class="btns">
+          ${c.status === "queued" ? `<button id="accept">接入会话</button>` : ""}
+          <button class="primary" id="sendBtn">发送回复</button>
+          ${c.status !== "ai" ? `<button id="release">交还 AI</button>` : ""}
+          <button id="closeBtn">结束会话</button>
+        </div>` : `<span class="muted">会话已结束</span>`}</div>
+    </div>
+    <div id="side"><h3>用户订单（商城数据）</h3><div id="orders" class="muted">加载中…</div></div>`;
+  $("thread").scrollTop = $("thread").scrollHeight;
+  bind(c);
+  const orders = await (await fetch(`/api/orders?user_id=${c.user_id}`)).json();
+  $("orders").innerHTML = orders.map((o) => `<div class="o"><b>${o.id}</b> ${esc(o.status)}${o.aftersale_status ? " · 售后" + esc(o.aftersale_status) : ""}<br>${esc(o.items)}</div>`).join("");
+}
+
+function bind(c) {
+  const post = (path, body = {}) => fetch(`/api/console/conversations/${c.id}/${path}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agent_name: $("agent").value || "坐席", ...body }) }).then(() => { renderedCount = -1; refresh(); });
+  const sendReply = () => { const t = $("draft").value.trim(); if (t) { $("draft").value = ""; post("reply", { text: t }); } };
+  $("accept") && ($("accept").onclick = () => post("accept"));
+  $("sendBtn") && ($("sendBtn").onclick = sendReply);
+  $("release") && ($("release").onclick = () => post("release"));
+  $("closeBtn") && ($("closeBtn").onclick = () => post("close"));
+  $("draft") && ($("draft").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(); } });
+}
+
+function refresh() { loadStats(); loadList(); loadDetail(); }
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
