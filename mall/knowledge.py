@@ -20,16 +20,24 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent import config
+from mall import ROOT
 
-KB_DIR = config.ROOT / "knowledge"
-INDEX_PATH = config.ROOT / "data" / "kb_index.json"
+KB_DIR = ROOT / "knowledge"
+INDEX_PATH = ROOT / "data" / "kb_index.json"
 
-# 可用的向量模型：<厂商>:<模型>，厂商的 key 和接入点复用 providers 注册表
+# 可用的向量模型：厂商 → (模型, key 的环境变量, 接入点)。商城自己管理，不依赖客服 Agent 的配置
 EMBEDDERS = {
     "qwen": "text-embedding-v4",
     "openai": "text-embedding-3-small",
 }
+_EMBEDDER_ENDPOINTS = {
+    "qwen": ("DASHSCOPE_API_KEY", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+    "openai": ("OPENAI_API_KEY", None),
+}
+
+
+def has_embedding_key(provider: str) -> bool:
+    return bool(os.getenv(_EMBEDDER_ENDPOINTS[provider][0]))
 
 
 @dataclass
@@ -115,18 +123,16 @@ class BM25:
 # ---------- 向量 ----------
 
 def embedding_client(provider: str):
-    """复用厂商注册表里的 key 和 base_url，调用 OpenAI 兼容的 embeddings 接口。"""
+    """调用 OpenAI 兼容的 embeddings 接口。"""
     import openai
-
-    from agent.providers import PROVIDERS, has_key
 
     if provider not in EMBEDDERS:
         raise SystemExit(f"不支持的向量模型厂商 {provider}，可选：{', '.join(EMBEDDERS)}")
-    if not has_key(provider):
-        raise SystemExit(f"未配置 {PROVIDERS[provider].api_key_env}，无法使用 {provider} 向量模型")
-    spec = PROVIDERS[provider]
-    base_url = os.getenv(f"{provider.upper()}_BASE_URL") or spec.base_url
-    return openai.OpenAI(api_key=os.getenv(spec.api_key_env), base_url=base_url)
+    key_env, default_url = _EMBEDDER_ENDPOINTS[provider]
+    if not os.getenv(key_env):
+        raise SystemExit(f"未配置 {key_env}，无法使用 {provider} 向量模型")
+    base_url = os.getenv(f"{provider.upper()}_BASE_URL") or default_url
+    return openai.OpenAI(api_key=os.getenv(key_env), base_url=base_url)
 
 
 def embed(provider: str, texts: list[str], batch: int = 10) -> list[list[float]]:

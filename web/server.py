@@ -31,7 +31,9 @@ from fastapi import FastAPI, HTTPException  # noqa: E402
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from agent import config, db  # noqa: E402
+from agent import config  # noqa: E402
+from mall import db as mall_db  # noqa: E402  # 仅用于模拟"商城 App"一侧：订单侧栏、用户登录
+from mall.auth import issue_user_token  # noqa: E402
 from agent.providers import PROVIDERS, get_provider, has_key, resolve_model  # noqa: E402
 from agent.session import Session  # noqa: E402
 from agent.tools import ToolResult  # noqa: E402
@@ -92,7 +94,7 @@ def eval_report():
 
 @app.get("/api/meta")
 def meta():
-    with db.connect() as conn:
+    with mall_db.connect() as conn:
         users = [dict(r) for r in conn.execute("SELECT id, nickname FROM users ORDER BY id")]
     return {
         "default_provider": config.PROVIDER,   # .env 里的 AGENT_PROVIDER
@@ -105,15 +107,15 @@ def meta():
 
 @app.get("/api/orders")
 def orders(user_id: str):
-    with db.connect() as conn:
+    with mall_db.connect() as conn:
         rows = conn.execute(
             """SELECT o.id, o.status, o.signed_at, group_concat(p.name, '、') AS items FROM orders o
                JOIN order_items i ON i.order_id = o.id JOIN products p ON p.id = i.product_id
                WHERE o.user_id = ? GROUP BY o.id ORDER BY o.paid_at DESC LIMIT 15""", (user_id,)
         ).fetchall()
-    now = db.now()
+    now = mall_db.now()
     return [{"id": r["id"], "status": r["status"], "items": r["items"],
-             "days_since_signed": (now - db.parse(r["signed_at"])).days if r["signed_at"] else None}
+             "days_since_signed": (now - mall_db.parse(r["signed_at"])).days if r["signed_at"] else None}
             for r in rows]
 
 
@@ -125,12 +127,17 @@ def new_session(body: NewSession):
         raise HTTPException(400, f".env 中未配置 {PROVIDERS[body.provider].api_key_env}")
     try:
         # 网页版的每轮对话都写入调用链路日志 runs/traces/日期.jsonl
-        session = Session(get_provider(body.provider), user_id=body.user_id, trace_dir=config.RUNS_DIR / "traces")
-    except SystemExit as e:  # 用户不存在、数据库未生成等
-        raise HTTPException(400, str(e))
+        # 模拟用户已在商城登录：商城签发令牌，客服 Agent 只拿到令牌，不知道密钥
+        session = Session(get_provider(body.provider), user_token=issue_user_token(body.user_id),
+                          trace_dir=config.RUNS_DIR / "traces")
+    except (SystemExit, Exception) as e:  # 用户不存在、商城服务连不上等
+        raise HTTPException(400, f"新建会话失败：{e}")
     sid = uuid.uuid4().hex
     SESSIONS[sid] = session
-    return {"session_id": sid, "model": session.provider.model}
+    return {"session_id": sid, "model": session.provider.model,
+            "mcp_url": session.mall.url,
+            "tools": [{"name": t.name, "source": "客服本地" if t.name == "transfer_to_human" else "商城 MCP"}
+                      for t in session.tools]}
 
 
 def _sse(event: dict) -> str:
@@ -191,7 +198,7 @@ def chat(body: ChatIn):
 def action(body: ActionIn):
     """用户在确认卡片上点击按钮。这是唯一能让写操作真正执行的入口，模型无法调用。"""
     session = _session(body.session_id)
-    if body.action_id not in session.ctx.pending:
+    if body.action_id not in session.pending:
         raise HTTPException(409, "这张申请已失效或已处理")
     if body.decision == "confirm":
         return _stream_turn(lambda on_text, on_tool: session.confirm(body.action_id, on_text=on_text, on_tool=on_tool))
@@ -210,7 +217,7 @@ def _free_port(start: int) -> int:
 
 
 if __name__ == "__main__":
-    db.ensure_exists()
+    mall_db.ensure_exists()
     port = int(os.getenv("PORT", "8000"))
     if not os.getenv("PORT"):
         port = _free_port(port)

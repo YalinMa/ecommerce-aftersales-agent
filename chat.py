@@ -22,7 +22,9 @@ import json
 import anthropic
 import openai
 
-from agent import config, db
+from agent import config
+from mall import db as mall_db  # 仅用于模拟"商城 App"一侧：/orders 查看订单、用户登录
+from mall.auth import issue_user_token
 from agent.providers import PROVIDERS, get_provider, has_key, resolve_model
 from agent.session import Session
 from agent.tools import ToolResult
@@ -46,7 +48,7 @@ def print_providers(current: str):
 
 
 def print_orders(user_id: str):
-    with db.connect() as conn:
+    with mall_db.connect() as conn:
         rows = conn.execute(
             """SELECT o.id, o.status, group_concat(p.name, '、') AS items FROM orders o
                JOIN order_items i ON i.order_id = o.id JOIN products p ON p.id = i.product_id
@@ -80,9 +82,8 @@ def print_tool(result: ToolResult):
 
 def start(session: Session):
     p = session.provider
-    with db.connect() as conn:
-        nick = conn.execute("SELECT nickname FROM users WHERE id = ?", (session.ctx.user_id,)).fetchone()[0]
-    print(f"[{PROVIDERS[p.name].label} · {p.model} · 登录用户 {nick}（{session.ctx.user_id}）]")
+    print(f"[{PROVIDERS[p.name].label} · {p.model} · 登录用户 {session.nickname}（{session.ctx.user_id}）"
+          f" · 商城工具 {len(session.tools) - 1} 个（MCP）]")
     print("/orders 查看我的订单 · /debug 查看请求 · /use 切换厂商 · /exit 退出\n")
     print(f"小林：{WELCOME}\n")
 
@@ -94,7 +95,7 @@ def main():
     parser.add_argument("-u", "--user", default="u1001", help="登录用户 id")
     args = parser.parse_args()
 
-    session = Session(get_provider(args.provider, args.model), user_id=args.user)
+    session = Session(get_provider(args.provider, args.model), user_token=issue_user_token(args.user))
     start(session)
 
     while True:
@@ -133,7 +134,7 @@ def main():
             if not has_key(name):
                 print(f"[未配置 {PROVIDERS[name].api_key_env}，请先在 .env 中填写]\n")
                 continue
-            session = Session(get_provider(name), user_id=session.ctx.user_id)
+            session = Session(get_provider(name), user_token=issue_user_token(session.ctx.user_id))
             print()
             start(session)
             continue

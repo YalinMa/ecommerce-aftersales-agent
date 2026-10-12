@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent import config  # noqa: E402
-from agent.knowledge import EMBEDDERS, INDEX_PATH, Retriever  # noqa: E402
+from mall.knowledge import EMBEDDERS, INDEX_PATH, Retriever  # noqa: E402
 
 CASES = json.loads((config.ROOT / "scenarios" / "v2_retrieval.json").read_text(encoding="utf-8"))
 K = 3

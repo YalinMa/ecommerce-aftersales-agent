@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 import openai
 
-from agent.knowledge import load_chunks
+from mall.knowledge import load_chunks
 from agent.providers import PROVIDERS, has_key
 
 DEFAULT_JUDGE = os.getenv("JUDGE_MODEL", "deepseek:deepseek-v4-pro")

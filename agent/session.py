@@ -17,6 +17,8 @@ V1 起，用户说一句话后不再是"请求一次模型就结束"，而是一
 
 V3 起有写操作（提交售后申请）。写操作多一道关卡：模型只能生成"待确认"的申请，
 必须由用户在界面上确认，程序调用 confirm() 才会真正执行。
+
+V4 起业务工具来自商城 MCP 服务（mall_client），本模块不再直接访问商城的数据库。
 """
 
 import json
@@ -28,12 +30,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from agent import config, db, guards
-from agent.knowledge import load_chunks
+from agent import config, guards
+from agent.mall_client import MallClient
 from agent.providers import Provider, get_provider
 from agent.providers.base import add_usage, empty_usage
-from agent.tools import TOOLS, Tool, ToolContext, ToolResult, execute
-from agent.tools.aftersale import COMMITTERS, log_cancel
+from agent.tools import LOCAL_TOOLS, Tool, ToolContext, ToolResult, execute
 
 # 一轮对话里最多调用模型几次，防止模型反复调用工具陷入死循环
 MAX_STEPS = 6
@@ -41,7 +42,6 @@ MAX_STEPS = 6
 CLAUSE_ID = re.compile(r"(?<![A-Za-z0-9])([A-Z]-\d{2})(?![0-9])")   # 中文紧挨编号时 \b 不生效，所以用前后断言
 # 引用格式"R-07 换货规则"：编号后面紧跟的标题
 CITED_TITLE = re.compile(r"(?<![A-Za-z0-9])([A-Z]-\d{2})\s*([\u4e00-\u9fff][^；;，,。\n）)]{1,20})")
-CLAUSE_TITLES = {c.id: c.title for c in load_chunks()}
 
 
 def _overlap(a: str, b: str) -> float:
@@ -77,17 +77,23 @@ class TurnResult:
 
 
 class Session:
-    def __init__(self, provider: Provider | None = None, user_id: str = "u1001",
-                 tools: list[Tool] | None = None, system_prompt: str | None = None,
-                 trace_dir: Path | None = None):
-        """trace_dir：设置后，每轮对话的完整链路追加写入该目录下的 JSONL 日志（网页版默认开启）。"""
-        db.ensure_exists()
+    def __init__(self, provider: Provider | None = None, user_token: str = "",
+                 system_prompt: str | None = None, trace_dir: Path | None = None,
+                 mall: MallClient | None = None):
+        """user_token：用户登录商城后拿到的身份令牌，客服 Agent 只负责转交，自己无法伪造。
+        trace_dir：设置后，每轮对话的完整链路追加写入该目录下的 JSONL 日志（网页版默认开启）。"""
         self.id = uuid.uuid4().hex[:12]
         self.trace_dir = trace_dir
         self.provider = provider or get_provider()
-        self.ctx = ToolContext(user_id=user_id)
-        self.tools = TOOLS if tools is None else tools
-        self.system_prompt = system_prompt or config.load_system_prompt(user_id)
+        self.mall = mall or MallClient(user_token)
+        profile = self.mall.profile()           # 令牌无效时这里就会报错
+        self.ctx = ToolContext(user_id=profile["id"])
+        self.nickname = profile["nickname"]
+        # 商城工具通过 MCP 自动发现，再加上客服平台自己的工具
+        self.tools: list[Tool] = self.mall.model_tools() + LOCAL_TOOLS
+        self.clause_titles = self.mall.clause_titles()
+        self.system_prompt = system_prompt or config.load_system_prompt(self.nickname)
+        self.pending: dict[str, dict] = {}   # 等待用户确认的申请：action_id → 展示给用户的摘要
         self.messages: list[dict] = []
         self.total_usage = empty_usage()
         self.retrieved_ids: set[str] = set()   # 本会话里 search_policy 实际返回过的条款
@@ -146,7 +152,7 @@ class Session:
                 results = []
                 for call in r.tool_calls:
                     t0 = time.perf_counter()
-                    result = execute(call, self.ctx)
+                    result = execute(call, self.ctx, self.tools)
                     result.elapsed_ms = ms(t0)
                     turn.trace.append({"type": "tool", "name": call.name, "ms": result.elapsed_ms,
                                        "is_error": result.is_error})
@@ -180,11 +186,15 @@ class Session:
         turn.handoff = self.ctx.handoff
         turn.unverified_citations = self._check_citations(turn)
         turn.unverified_aftersale_ids = self._check_aftersale_ids(turn)
-        turn.pending_actions = [
-            {"id": a.id, "kind": a.kind, "summary": a.summary}
-            for r in turn.tool_results if r.call.name == "create_aftersale_request" and not r.is_error
-            if (a := self.ctx.pending.get(json.loads(r.content)["action_id"]))
-        ]
+        for r in turn.tool_results:
+            if r.call.name == "create_aftersale_request" and not r.is_error:
+                data = json.loads(r.content)
+                # 商城会作废同一商品之前的待确认申请，这里同步只保留最新一张
+                key = (data["summary"].get("订单"), data["summary"].get("商品"))
+                self.pending = {k: v for k, v in self.pending.items() if (v.get("订单"), v.get("商品")) != key}
+                self.pending[data["action_id"]] = data["summary"]
+                turn.pending_actions.append({"id": data["action_id"], "kind": "create_aftersale",
+                                             "summary": data["summary"]})
         add_usage(self.total_usage, turn.usage)
         turn.latency_ms = ms(started)
         self._log(user_text, turn, is_notice)
@@ -215,10 +225,10 @@ class Session:
     def confirm(self, action_id: str, on_text: Callable[[str], None] | None = None,
                 on_tool: Callable[[ToolResult], None] | None = None) -> TurnResult:
         """用户点击「确认提交」后由程序调用：执行写操作，再让模型把结果告诉用户。"""
-        action = self.ctx.pending.pop(action_id, None)
-        if action is None:
+        if self.pending.pop(action_id, None) is None:
             raise KeyError("这张申请已失效或已处理，请刷新后重试")
-        result = COMMITTERS[action.kind](self.ctx, action)
+        # 由宿主程序（不是大模型）带着确认签名请商城执行
+        result = self.mall.confirm(self.ctx.user_id, action_id)
         notice = ("[系统通知] 用户已在界面上点击「确认提交」，程序已执行。执行结果："
                   + json.dumps(result, ensure_ascii=False)
                   + "。请告诉用户结果：成功时说明售后单号、当前状态和下一步；失败时说明原因。不要再次调用 create_aftersale_request。")
@@ -230,10 +240,9 @@ class Session:
 
     def cancel(self, action_id: str, on_text: Callable[[str], None] | None = None) -> TurnResult:
         """用户点击「取消」：不执行，记录日志，并让模型知道申请没有提交。"""
-        action = self.ctx.pending.pop(action_id, None)
-        if action is None:
+        if self.pending.pop(action_id, None) is None:
             raise KeyError("这张申请已失效或已处理")
-        log_cancel(self.ctx, action)
+        self.mall.cancel(self.ctx.user_id, action_id)
         return self.send("[系统通知] 用户点击了「取消」，这次申请没有提交。请简短回应，询问是否还需要其他帮助。",
                          on_text=on_text, is_notice=True)
 
@@ -254,7 +263,7 @@ class Session:
         fake = set(CLAUSE_ID.findall(turn.text)) - self.retrieved_ids
         # 编号是真的，但后面写的标题对不上（如"R-07 运费险保障"，实际 R-07 是换货规则），同样算编造
         for cid, title in CITED_TITLE.findall(turn.text):
-            real = CLAUSE_TITLES.get(cid)
+            real = self.clause_titles.get(cid)
             # 只抓几乎毫无关系的标题；措辞改写（"退货商品需保持完好"）交给评分模型判断，避免误报
             if real and cid not in fake and _overlap(title, real) < 0.15:
                 fake.add(f"{cid}（写成「{title}」，实为「{real}」）")
@@ -281,4 +290,4 @@ class Session:
         self.retrieved_ids.clear()
         self.known_aftersale_ids.clear()
         self.ctx.handoff = None
-        self.ctx.pending.clear()
+        self.pending.clear()

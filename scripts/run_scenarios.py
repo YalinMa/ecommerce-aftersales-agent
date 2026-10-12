@@ -41,6 +41,7 @@ from agent import config  # noqa: E402
 from agent.providers import PROVIDERS, get_provider, has_key  # noqa: E402
 from agent.session import Session  # noqa: E402
 from seed_data import build as rebuild_db  # noqa: E402
+from mall.auth import issue_user_token  # noqa: E402  # 模拟用户登录商城
 
 # "已提交""已经为您提交"等说法；含否定或条件的句子（"还没提交""确认后才会提交"）不算
 CLAIM = re.compile(r"已(经)?(为您|帮您|给您)?(成功)?提交")
@@ -55,12 +56,12 @@ DEFAULT_SCENARIOS = config.ROOT / "scenarios" / "v2_dialogues.json"
 
 def run_one(provider, scenario: dict) -> dict:
     rebuild_db()
-    session = Session(provider, user_id=scenario.get("user_id", "u1001"))
+    session = Session(provider, user_token=issue_user_token(scenario.get("user_id", "u1001")))
     transcript = []
     start = time.time()
     for step in scenario["turns"]:
         if isinstance(step, dict):   # 模拟用户点击确认 / 取消
-            pending = list(session.ctx.pending)   # 所有还在等待确认的申请，取最新一张
+            pending = list(session.pending)   # 所有还在等待确认的申请，取最新一张
             if not pending:
                 transcript.append({"user": f"（点击{step['action']}，但没有待确认的申请）", "assistant": "",
                                    "tools": [], "steps": 0, "handoff": None, "pending": [], "commit": None,

@@ -8,7 +8,7 @@
 | V1 | 工具调用：手写 agent loop，查订单、物流、售后进度，工具化转人工 | ✅ |
 | V2 | 知识库 RAG：混合检索、回答带出处、引用核查、检索评测 | ✅ |
 | V3 | 写操作：代提交售后申请，规则引擎校验、用户确认、幂等、审计日志、转人工规则兜底 | ✅ |
-| V4 | MCP 化：业务工具拆成独立 MCP Server | ⏳ |
+| V4 | MCP 化：商城拆成独立 MCP 服务，签名令牌传递身份、确认签名保护写操作，可接入 Claude Desktop | ✅ |
 | V5 | 评测和可观测：模型评分（含评分模型校准）、调用链路追踪、可视化评测报告 | ✅ |
 | V6 | 产品化：嵌入模拟商城、流式输出、转人工 | ⏳ |
 
@@ -26,6 +26,7 @@ python scripts/build_index.py         # 构建知识库索引（修改 knowledge
 
 python web/server.py                  # 网页版演示：打开 http://localhost:8000，左边聊天、右边看工具调用过程
 python chat.py -p deepseek            # 命令行对话，输入 /orders 查看当前用户的订单
+python -m mall.mcp_server             # 单独启动商城 MCP 服务（不启动也行，客服 Agent 会自动拉起本机服务）
 python chat.py -p deepseek -u u1002   # 以其他用户身份登录
 python scripts/run_scenarios.py -p deepseek -p openai -p qwen   # 回放最新版本（V3）场景，多厂商对比
 python scripts/eval_retrieval.py      # 检索评测：BM25 / 向量 / 混合检索对比
@@ -39,22 +40,20 @@ python scripts/list_models.py -p kimi # 查看账号下可用的模型名
 ## 架构
 
 ```
-用户 ──► chat.py ──► Session（agent loop）──► Provider 适配层 ──► 各家大模型
-                        │                                    （Claude / OpenAI / DeepSeek / 通义 …）
-                        │ 模型要求调用工具
-                        ▼
-                     工具执行器 ──► 订单 / 物流 / 售后工具 ──► SQLite 模拟商城
-                        │              ▲
-                        │              └── user_id 由登录态注入，模型无法指定
-                        ├──► search_policy ──► 知识库（BM25 + 向量混合检索）
-                        ├──► check_return_eligibility ──► 规则引擎（能否售后、截止日、运费）
-                        ├──► create_aftersale_request ──► 只生成"待确认"申请，不写库
-                        └──► transfer_to_human ──► 转人工（V6 接入真实队列）
-
-  用户点击「确认提交」──► 程序执行写入（再校验 → 幂等 → 写库 → 审计日志）  ← 模型无法触发
-  用户消息 ──► 转人工规则（安全 / 投诉 / 索赔）：提示模型，模型没转则程序兜底
-  回复 ──► 引用核查（条款编号必须检索过、标题要对得上）+ 单号核查（售后单号必须真实存在）
-  每轮 ──► 链路追踪（每次模型请求 / 工具调用的耗时和用量）──► runs/traces/*.jsonl
+┌──────────────────── 客服 Agent（agent/）────────────────────┐          ┌────────── 商城 MCP 服务（mall/）──────────┐
+│                                                              │          │                                          │
+│ 用户 ─► Session（agent loop）─► Provider 适配层 ─► 各家大模型 │          │ 工具（给大模型）                          │
+│            │                                                 │   MCP    │   search_policy ─► 知识库（混合检索）      │
+│            │ 模型要求调用工具                                 │ ◄──────► │   订单 / 物流 / 售后查询 ─► SQLite         │
+│            ▼                                                 │  HTTP    │   check_return_eligibility ─► 规则引擎   │
+│        工具执行器 ─► 商城工具（MCP 自动发现）────────────────┼─────────►│   create_aftersale_request ─► 待确认申请   │
+│                  └► transfer_to_human（客服自己的工具）       │ 请求头带  │                                          │
+│                                                              │ 签名令牌  │ 工具（只给宿主程序，带 host_only 标记）    │
+│ 用户点击「确认提交」─► 计算确认签名 ─────────────────────────┼─────────►│   confirm / cancel：验签 → 再校验 → 幂等   │
+│                                                              │          │     → 写库 → 审计日志                     │
+│ 转人工规则兜底、引用核查、单号核查、链路追踪                  │          │ 资源 kb://clauses：知识库条款              │
+└──────────────────────────────────────────────────────────────┘          └──────────────────────────────────────────┘
+                                                                           同一个服务也可以用 stdio 接入 Claude Desktop
 
 评测：回放场景 ──► 自动检查（流程对不对）+ 评分模型（话说得对不对）──► 评测报告
 ```
@@ -76,28 +75,28 @@ python scripts/list_models.py -p kimi # 查看账号下可用的模型名
 ## 目录结构
 
 ```
-agent/
-  prompts/system_prompt.md   客服人设、能力范围、工具使用原则、售后政策、转人工规则
+agent/                       客服 Agent（不引用 mall/ 的任何代码）
+  prompts/system_prompt.md   客服人设、能力范围、工具使用原则、办理流程、转人工规则
   prompts/history/           历次 prompt 存档
   config.py                  全局配置；拼接 prompt 模板与会话上下文（登录用户、日期）
-  knowledge.py               知识库：切分、BM25、向量、混合检索
-  rules.py                   售后资格规则引擎
+  session.py                 多轮会话 + 手写的 agent loop + 引用 / 单号核查 + 链路追踪
+  mall_client.py             商城 MCP 客户端：工具发现、调用转发、确认签名、自动启动本地服务
   guards.py                  转人工规则兜底
-  session.py                 多轮会话 + 手写的 agent loop
-  db.py                      模拟商城数据库连接
   providers/                 模型厂商适配层（含各家 tool calling 格式转换）
-    __init__.py              厂商注册表（key、默认模型、接入点）
-    anthropic_provider.py    Claude 官方 SDK
-    openai_compat.py         OpenAI 兼容接口，覆盖其余厂商
-  tools/                     工具层（与厂商无关）
-    base.py                  工具定义、执行上下文、参数校验
-    orders.py                订单、物流、售后查询
-    policy.py                知识库检索工具
-    aftersale.py             售后资格查询、生成待确认申请、确认后执行写入
-    handoff.py               转人工
+  tools/                     工具执行器、参数校验、客服自己的工具（转人工）
+mall/                        商城业务方（不引用 agent/ 的任何代码）
+  mcp_server.py              MCP 服务：工具、宿主专用工具、知识库资源、健康检查
+  auth.py                    身份令牌、确认签名
+  orders.py                  订单、物流、售后记录查询
+  aftersale.py               资格判断、待确认申请、确认后执行写入、审计日志
+  rules.py                   售后资格规则引擎
+  knowledge.py               知识库：切分、BM25、向量、混合检索
+  policy.py                  知识库检索
+  db.py                      数据库连接
 knowledge/                   售后政策知识库（8 个文档、42 条条款）
 chat.py                      命令行客服窗口
 web/                         网页版演示（server.py 后端 + index.html 页面）
+evals/judge.py               评分模型：评分标准、对话整理、结果校验
 scenarios/                   测试场景（v0–v3 各版本对话场景，含自动检查规则；v2_retrieval 检索测试集；v5_judge_calibration 评分校准集）
 scripts/seed_data.py         生成模拟商城数据
 scripts/build_index.py       构建知识库向量索引
@@ -105,7 +104,6 @@ scripts/eval_retrieval.py    检索评测
 scripts/run_scenarios.py     批量回放、自动检查、多厂商对比报告
 scripts/eval.py              模型评分 + 可视化评测报告
 scripts/judge_calibration.py 评分模型校准
-evals/judge.py               评分模型：评分标准、对话整理、结果校验
 scripts/list_models.py       查看厂商账号下可用的模型
 docs/
   v0-notes.md                V0 学习笔记和实验建议
@@ -117,6 +115,7 @@ docs/
   v2-findings.md             V2 多模型测试结果
   v3-notes.md                V3 学习笔记：写操作的多层防线、规则引擎、伪造通知攻击、踩坑记录
   v3-findings.md             V3 多模型测试结果
+  v4-notes.md                V4 学习笔记：MCP 拆分、身份令牌、跨服务确认签名、接入 Claude Desktop
   v5-notes.md                V5 学习笔记：评分设计、评分模型校准、可观测性、踩坑记录
   v5-findings.md             V5 评测结果
 ```

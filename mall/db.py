@@ -1,13 +1,13 @@
-"""模拟商城数据库。V1 直接读 SQLite；V4 会把这一层拆成独立的 MCP Server。"""
+"""商城数据库（SQLite）。只有商城自己的代码能访问，客服 Agent 通过 MCP 服务间接使用。"""
 
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Iterator
 
-from agent import config
+from mall import ROOT
 
-DB_PATH = config.ROOT / "data" / "mall.db"
+DB_PATH = ROOT / "data" / "mall.db"
 TIME_FMT = "%Y-%m-%d %H:%M:%S"
 
 

@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent.db import DB_PATH  # noqa: E402
+from mall.db import DB_PATH  # noqa: E402
 
 SCHEMA = """
 CREATE TABLE users (
@@ -77,6 +77,16 @@ CREATE TABLE aftersales (
     refunded_at TEXT,
     request_key TEXT UNIQUE          -- 幂等键：同一次用户确认只会生成一张售后单
 );
+CREATE TABLE pending_actions (       -- 待用户确认的写操作（V4 起由商城保存）
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    params TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    status TEXT NOT NULL,            -- 待确认 / 已提交 / 已取消 / 已作废 / 已过期 / 已失效
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
 CREATE TABLE audit_log (             -- 写操作审计日志
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     time TEXT NOT NULL,
@@ -84,7 +94,7 @@ CREATE TABLE audit_log (             -- 写操作审计日志
     action TEXT NOT NULL,
     params TEXT NOT NULL,
     result TEXT NOT NULL,
-    confirmed_by TEXT NOT NULL       -- 谁确认执行的，如 user_click
+    confirmed_by TEXT NOT NULL       -- 确认方式，如"用户点击（签名已校验）"
 );
 """
 

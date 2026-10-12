@@ -14,8 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent.knowledge import EMBEDDERS, INDEX_PATH, embed, fingerprint, load_chunks  # noqa: E402
-from agent.providers import has_key  # noqa: E402
+from mall.knowledge import EMBEDDERS, INDEX_PATH, embed, fingerprint, has_embedding_key, load_chunks  # noqa: E402
 
 
 def main():
@@ -27,7 +26,7 @@ def main():
 
     index = {"fingerprint": fingerprint(chunks), "chunk_ids": [c.id for c in chunks], "embeddings": {}}
     for provider, model in EMBEDDERS.items():
-        if not has_key(provider):
+        if not has_embedding_key(provider):
             print(f"跳过 {provider}:{model}（未配置 key）")
             continue
         start = time.time()

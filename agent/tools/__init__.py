@@ -1,20 +1,19 @@
-"""工具注册表和执行器。"""
+"""工具执行器，以及客服 Agent 自己的工具。
+
+V4 起，订单、物流、售后、知识库这些业务工具由商城 MCP 服务提供，运行时通过 mall_client 自动发现；
+这里只保留属于客服平台自身的工具：转人工。
+"""
 
 from agent.tools.base import (Tool, ToolCall, ToolContext, ToolError, ToolResult, to_json,
                               validate_arguments)
-from agent.tools.aftersale import CHECK_RETURN_ELIGIBILITY, CREATE_AFTERSALE_REQUEST
 from agent.tools.handoff import TRANSFER_TO_HUMAN
-from agent.tools.orders import GET_AFTERSALE_STATUS, GET_LOGISTICS, GET_ORDER_DETAIL, LIST_MY_ORDERS
-from agent.tools.policy import SEARCH_POLICY
 
-TOOLS: list[Tool] = [SEARCH_POLICY, LIST_MY_ORDERS, GET_ORDER_DETAIL, GET_LOGISTICS, GET_AFTERSALE_STATUS,
-                     CHECK_RETURN_ELIGIBILITY, CREATE_AFTERSALE_REQUEST, TRANSFER_TO_HUMAN]
-_BY_NAME = {t.name: t for t in TOOLS}
+LOCAL_TOOLS: list[Tool] = [TRANSFER_TO_HUMAN]
 
 
-def execute(call: ToolCall, ctx: ToolContext) -> ToolResult:
+def execute(call: ToolCall, ctx: ToolContext, tools: list[Tool]) -> ToolResult:
     """执行一次工具调用。任何错误都转成 is_error 结果交给模型，而不是让整个对话崩溃。"""
-    tool = _BY_NAME.get(call.name)
+    tool = next((t for t in tools if t.name == call.name), None)
     if tool is None:
         return ToolResult(call, f"不存在名为 {call.name} 的工具", is_error=True)
     if call.arguments is None:
@@ -29,4 +28,4 @@ def execute(call: ToolCall, ctx: ToolContext) -> ToolResult:
         return ToolResult(call, f"工具执行失败：{type(e).__name__}", is_error=True)
 
 
-__all__ = ["TOOLS", "Tool", "ToolCall", "ToolContext", "ToolResult", "execute"]
+__all__ = ["LOCAL_TOOLS", "Tool", "ToolCall", "ToolContext", "ToolResult", "execute"]

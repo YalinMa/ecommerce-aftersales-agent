@@ -183,6 +183,10 @@ async function newSession() {
   const data = await res.json();
   if (!res.ok) { addBanner(data.detail || "新建会话失败", true); return; }
   sessionId = data.session_id;
+  const mcpTools = data.tools.filter((t) => t.source === "商城 MCP").map((t) => t.name);
+  $("trace").innerHTML = `<p class="hint">已连接商城 MCP 服务（${esc(data.mcp_url)}），自动发现 ${mcpTools.length} 个工具：
+    ${mcpTools.map((n) => `<code>${esc(n)}</code>`).join("、")}；另有客服本地工具 <code>transfer_to_human</code>。<br>
+    发送一条消息后，这里会实时显示模型调用工具的过程。</p>`;
   addBot().textContent = "您好，我是林间优选售后客服小林，请问有什么可以帮您？";
 }
 

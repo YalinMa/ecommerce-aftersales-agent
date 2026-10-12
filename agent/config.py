@@ -26,7 +26,7 @@ RUNS_DIR = ROOT / "runs"
 WEEKDAYS = "一二三四五六日"
 
 
-def load_system_prompt(user_id: str | None = None) -> str:
+def load_system_prompt(nickname: str | None = None) -> str:
     """固定的 prompt 模板 + 本次会话的上下文（登录用户、今天日期）。
 
     上下文放在最后：模板部分每次请求都一样，便于厂商做 prompt 缓存；
@@ -34,18 +34,12 @@ def load_system_prompt(user_id: str | None = None) -> str:
     """
     from datetime import date
 
-    from agent import db  # 避免循环导入
-
     prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
-    if not user_id:
+    if not nickname:
         return prompt
-    with db.connect() as conn:
-        row = conn.execute("SELECT nickname FROM users WHERE id = ?", (user_id,)).fetchone()
-    if not row:
-        raise SystemExit(f"用户 {user_id} 不存在，可选：u1001 / u1002 / u1003")
     today = date.today()
     return prompt + (
         "\n# 当前会话\n\n"
-        f"- 登录用户昵称：{row['nickname']}（已通过登录验证，工具查询自动限定为该用户的数据）\n"
+        f"- 登录用户昵称：{nickname}（已通过登录验证，工具查询自动限定为该用户的数据）\n"
         f"- 今天日期：{today:%Y-%m-%d}，星期{WEEKDAYS[today.weekday()]}\n"
     )
